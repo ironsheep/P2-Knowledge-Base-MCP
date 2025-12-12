@@ -40,6 +40,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - JSON-RPC 2.0 over stdio
 - No external dependencies required at runtime
 
+### Test Coverage
+
+**Overall: 54.8%**
+
+| Package | Coverage |
+|---------|----------|
+| `internal/filter` | 100.0% |
+| `internal/fetch` | 72.1% |
+| `internal/index` | 67.3% |
+| `internal/cache` | 55.6% |
+| `internal/server` | 43.2% |
+
+See [TESTING.md](DOCs/TESTING.md) for detailed coverage information.
+
 ### Data Source
 
 All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsheep/P2-Knowledge-Base):
@@ -47,5 +61,5 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/p2kb-mcp/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/ironsheep/p2kb-mcp/releases/tag/v1.0.0
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/tag/v1.0.0

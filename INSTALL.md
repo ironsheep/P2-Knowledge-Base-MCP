@@ -8,7 +8,7 @@ The container-tools package installs P2KB MCP alongside other MCPs in `/opt/cont
 
 ```bash
 # Download the latest release
-curl -LO https://github.com/ironsheep/p2kb-mcp/releases/latest/download/p2kb-mcp-v1.0.0.tar.gz
+curl -LO https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/latest/download/p2kb-mcp-v1.0.0.tar.gz
 
 # Extract
 tar -xzf p2kb-mcp-v1.0.0.tar.gz
@@ -51,8 +51,8 @@ p2kb-mcp --version
 ### Build from Source
 
 ```bash
-git clone https://github.com/ironsheep/p2kb-mcp.git
-cd p2kb-mcp
+git clone https://github.com/ironsheep/P2-Knowledge-Base-MCP.git
+cd P2-Knowledge-Base-MCP
 make build
 sudo make install
 ```
