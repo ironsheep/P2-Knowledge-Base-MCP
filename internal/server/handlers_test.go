@@ -258,3 +258,162 @@ func TestHandleToolsCallInvalidParams(t *testing.T) {
 		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
 	}
 }
+
+func TestHandleGetMissingKey(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_get",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing key")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleGetInvalidArgs(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_get",
+		"arguments": "not an object",
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for invalid arguments")
+	}
+}
+
+func TestHandleSearchMissingTerm(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_search",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing term")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleBrowseMissingCategory(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_browse",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing category")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleInfoMissingKey(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_info",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing key")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleRelatedMissingKey(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_related",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing key")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleBatchGetMissingKeys(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_batch_get",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing keys")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+

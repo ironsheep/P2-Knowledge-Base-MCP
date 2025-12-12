@@ -37,7 +37,7 @@ func TestWithBaseURL(t *testing.T) {
 func TestFetchURL(t *testing.T) {
 	// Create test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("test content"))
+		_, _ = w.Write([]byte("test content"))
 	}))
 	defer ts.Close()
 
@@ -69,7 +69,7 @@ func TestFetch(t *testing.T) {
 	// Create test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/test/path.yaml" {
-			w.Write([]byte("yaml content"))
+			_, _ = w.Write([]byte("yaml content"))
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}

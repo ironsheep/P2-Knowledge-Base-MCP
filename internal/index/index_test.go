@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestNewManager(t *testing.T) {
@@ -54,12 +55,14 @@ func TestManagerSearch(t *testing.T) {
 	m := &Manager{
 		index: &Index{
 			Files: map[string]FileEntry{
-				"p2kbPasm2Mov":    {Path: "pasm2/mov.yaml"},
-				"p2kbPasm2Add":    {Path: "pasm2/add.yaml"},
-				"p2kbPasm2Movbyts": {Path: "pasm2/movbyts.yaml"},
+				"p2kbPasm2Mov":      {Path: "pasm2/mov.yaml"},
+				"p2kbPasm2Add":      {Path: "pasm2/add.yaml"},
+				"p2kbPasm2Movbyts":  {Path: "pasm2/movbyts.yaml"},
 				"p2kbSpin2Pinwrite": {Path: "spin2/pinwrite.yaml"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	tests := []struct {
@@ -93,6 +96,8 @@ func TestManagerGetCategories(t *testing.T) {
 				"pasm2_branch": {"p2kbPasm2Jmp", "p2kbPasm2Call"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	categories := m.GetCategories()
@@ -114,6 +119,8 @@ func TestManagerGetCategoriesWithCounts(t *testing.T) {
 				"pasm2_branch": {"p2kbPasm2Jmp"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	counts := m.GetCategoriesWithCounts()
@@ -132,6 +139,8 @@ func TestManagerGetCategoryKeys(t *testing.T) {
 				"pasm2_math": {"p2kbPasm2Add", "p2kbPasm2Sub"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	keys, err := m.GetCategoryKeys("pasm2_math")
@@ -156,6 +165,8 @@ func TestManagerKeyExists(t *testing.T) {
 				"p2kbPasm2Mov": {Path: "pasm2/mov.yaml"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	if !m.KeyExists("p2kbPasm2Mov") {
@@ -170,10 +181,12 @@ func TestManagerGetKeyCategories(t *testing.T) {
 	m := &Manager{
 		index: &Index{
 			Categories: map[string][]string{
-				"pasm2_math":   {"p2kbPasm2Add", "p2kbPasm2Mov"},
-				"pasm2_data":   {"p2kbPasm2Mov"},
+				"pasm2_math": {"p2kbPasm2Add", "p2kbPasm2Mov"},
+				"pasm2_data": {"p2kbPasm2Mov"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	categories := m.GetKeyCategories("p2kbPasm2Mov")
@@ -197,6 +210,8 @@ func TestManagerGetStats(t *testing.T) {
 				TotalCategories: 47,
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	stats := m.GetStats()
@@ -220,6 +235,8 @@ func TestManagerFindSimilarKeys(t *testing.T) {
 				"p2kbPasm2Add":     {Path: "pasm2/add.yaml"},
 			},
 		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
 	}
 
 	// Test finding similar keys

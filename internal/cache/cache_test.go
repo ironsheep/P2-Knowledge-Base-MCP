@@ -70,8 +70,8 @@ func TestManagerClear(t *testing.T) {
 
 	// Create a cache file
 	cacheDir := filepath.Join(tmpDir, "cache")
-	os.MkdirAll(cacheDir, 0755)
-	os.WriteFile(filepath.Join(cacheDir, "test.yaml"), []byte("test"), 0644)
+	_ = os.MkdirAll(cacheDir, 0755)
+	_ = os.WriteFile(filepath.Join(cacheDir, "test.yaml"), []byte("test"), 0644)
 
 	// Clear
 	m.Clear()
@@ -100,8 +100,8 @@ func TestManagerInvalidate(t *testing.T) {
 
 	// Create cache files
 	cacheDir := filepath.Join(tmpDir, "cache")
-	os.MkdirAll(cacheDir, 0755)
-	os.WriteFile(filepath.Join(cacheDir, "key1.yaml"), []byte("test"), 0644)
+	_ = os.MkdirAll(cacheDir, 0755)
+	_ = os.WriteFile(filepath.Join(cacheDir, "key1.yaml"), []byte("test"), 0644)
 
 	// Invalidate key1
 	m.Invalidate("key1")

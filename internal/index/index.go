@@ -129,6 +129,10 @@ func (m *Manager) KeyExists(key string) bool {
 
 // Search searches for keys matching a term.
 func (m *Manager) Search(term string, limit int) []string {
+	if term == "" {
+		return nil
+	}
+
 	if err := m.EnsureIndex(); err != nil {
 		return nil
 	}

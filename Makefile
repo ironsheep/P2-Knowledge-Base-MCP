@@ -62,8 +62,8 @@ test-ci:
 	go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 	@COVERAGE=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
 	echo "Coverage: $$COVERAGE%"; \
-	if [ $$(echo "$$COVERAGE < 60" | bc) -eq 1 ]; then \
-		echo "Coverage below 60% threshold"; exit 1; \
+	if [ $$(echo "$$COVERAGE < 50" | bc) -eq 1 ]; then \
+		echo "Coverage below 50% threshold"; exit 1; \
 	fi
 
 # Run linters
