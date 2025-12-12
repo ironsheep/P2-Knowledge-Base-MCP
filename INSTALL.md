@@ -6,13 +6,14 @@
 
 The container-tools package installs P2KB MCP alongside other MCPs in `/opt/container-tools/`:
 
-```bash
-# Download the latest release
-curl -LO https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/latest/download/p2kb-mcp-v1.0.0.tar.gz
+1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
+2. Download the container-tools package: `p2kb-mcp-vX.X.X.tar.gz`
+3. Extract and install:
 
-# Extract
-tar -xzf p2kb-mcp-v1.0.0.tar.gz
-cd p2kb-mcp-v1.0.0
+```bash
+# Extract the package
+tar -xzf p2kb-mcp-v*.tar.gz
+cd p2kb-mcp-v*/
 
 # Install (requires sudo for /opt)
 ./install.sh
@@ -28,21 +29,25 @@ The installer automatically:
 
 ### Standalone Binary
 
-Download the appropriate binary for your platform:
+1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
+2. Download the appropriate binary for your platform:
 
-| Platform | Binary |
-|----------|--------|
-| Linux AMD64 | `p2kb-mcp-v1.0.0-linux-amd64` |
-| Linux ARM64 | `p2kb-mcp-v1.0.0-linux-arm64` |
-| macOS Intel | `p2kb-mcp-v1.0.0-darwin-amd64` |
-| macOS Apple Silicon | `p2kb-mcp-v1.0.0-darwin-arm64` |
-| Windows AMD64 | `p2kb-mcp-v1.0.0-windows-amd64.exe` |
-| Windows ARM64 | `p2kb-mcp-v1.0.0-windows-arm64.exe` |
+| Platform | File Pattern |
+|----------|--------------|
+| Linux AMD64 | `p2kb-mcp-vX.X.X-linux-amd64.tar.gz` |
+| Linux ARM64 | `p2kb-mcp-vX.X.X-linux-arm64.tar.gz` |
+| macOS Intel | `p2kb-mcp-vX.X.X-darwin-amd64.tar.gz` |
+| macOS Apple Silicon | `p2kb-mcp-vX.X.X-darwin-arm64.tar.gz` |
+| Windows AMD64 | `p2kb-mcp-vX.X.X-windows-amd64.zip` |
+| Windows ARM64 | `p2kb-mcp-vX.X.X-windows-arm64.zip` |
+
+3. Extract and install:
 
 ```bash
 # Linux/macOS
-chmod +x p2kb-mcp-v1.0.0-linux-amd64
-mv p2kb-mcp-v1.0.0-linux-amd64 /usr/local/bin/p2kb-mcp
+tar -xzf p2kb-mcp-v*-linux-amd64.tar.gz
+chmod +x p2kb-mcp-v*-linux-amd64
+sudo mv p2kb-mcp-v*-linux-amd64 /usr/local/bin/p2kb-mcp
 
 # Verify
 p2kb-mcp --version
