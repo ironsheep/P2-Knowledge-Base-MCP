@@ -1,0 +1,798 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # Build and test Linux AMD64
+  build-linux-amd64:
+    name: Build & Test Linux AMD64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Build Linux AMD64 binary
+        run: |
+          LDFLAGS="-s -w"
+          LDFLAGS="${LDFLAGS} -X 'main.Version=${{ steps.version.outputs.VERSION }}'"
+          LDFLAGS="${LDFLAGS} -X 'main.BuildTime=$(date -u +"%Y-%m-%d %H:%M:%S UTC")'"
+          LDFLAGS="${LDFLAGS} -X 'main.GitCommit=$(git rev-parse --short HEAD)'"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="${LDFLAGS}" \
+            -o "p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-amd64" \
+            ./cmd/p2kb-mcp
+
+      - name: Smoke test - Version
+        run: |
+          ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-amd64 --version
+          ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-amd64 --version | grep -q "${{ steps.version.outputs.VERSION }}"
+
+      - name: Smoke test - MCP tools/list
+        run: |
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+            timeout 5 ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-amd64 | \
+            grep -q "p2kb_get"
+
+      - name: Upload Linux AMD64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-linux-amd64
+          path: p2kb-mcp-v*-linux-amd64
+          retention-days: 1
+
+  # Build Linux ARM64 (cross-compiled)
+  build-linux-arm64:
+    name: Build Linux ARM64 (cross-compile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Build Linux ARM64 binary
+        run: |
+          LDFLAGS="-s -w"
+          LDFLAGS="${LDFLAGS} -X 'main.Version=${{ steps.version.outputs.VERSION }}'"
+          LDFLAGS="${LDFLAGS} -X 'main.BuildTime=$(date -u +"%Y-%m-%d %H:%M:%S UTC")'"
+          LDFLAGS="${LDFLAGS} -X 'main.GitCommit=$(git rev-parse --short HEAD)'"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="${LDFLAGS}" \
+            -o "p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-arm64" \
+            ./cmd/p2kb-mcp
+
+      - name: Verify binary was created
+        run: |
+          ls -la p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-arm64
+          file p2kb-mcp-v${{ steps.version.outputs.VERSION }}-linux-arm64 | grep -q "ARM aarch64"
+          echo "Binary architecture verified as ARM64"
+
+      - name: Upload Linux ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-linux-arm64
+          path: p2kb-mcp-v*-linux-arm64
+          retention-days: 1
+
+  # Build and test macOS AMD64
+  build-darwin-amd64:
+    name: Build & Test macOS AMD64
+    runs-on: macos-15-large
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Build macOS AMD64 binary
+        run: |
+          LDFLAGS="-s -w"
+          LDFLAGS="${LDFLAGS} -X 'main.Version=${{ steps.version.outputs.VERSION }}'"
+          LDFLAGS="${LDFLAGS} -X 'main.BuildTime=$(date -u +"%Y-%m-%d %H:%M:%S UTC")'"
+          LDFLAGS="${LDFLAGS} -X 'main.GitCommit=$(git rev-parse --short HEAD)'"
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build \
+            -ldflags="${LDFLAGS}" \
+            -o "p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-amd64" \
+            ./cmd/p2kb-mcp
+
+      - name: Smoke test - Version
+        run: |
+          ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-amd64 --version
+          ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-amd64 --version | grep -q "${{ steps.version.outputs.VERSION }}"
+
+      - name: Smoke test - MCP tools/list
+        run: |
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+            perl -e 'alarm 10; exec @ARGV' ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-amd64 | \
+            head -100 | grep -q "p2kb_get"
+
+      - name: Upload macOS AMD64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-darwin-amd64
+          path: p2kb-mcp-v*-darwin-amd64
+          retention-days: 1
+
+  # Build and test macOS ARM64
+  build-darwin-arm64:
+    name: Build & Test macOS ARM64
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Build macOS ARM64 binary
+        run: |
+          LDFLAGS="-s -w"
+          LDFLAGS="${LDFLAGS} -X 'main.Version=${{ steps.version.outputs.VERSION }}'"
+          LDFLAGS="${LDFLAGS} -X 'main.BuildTime=$(date -u +"%Y-%m-%d %H:%M:%S UTC")'"
+          LDFLAGS="${LDFLAGS} -X 'main.GitCommit=$(git rev-parse --short HEAD)'"
+
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build \
+            -ldflags="${LDFLAGS}" \
+            -o "p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-arm64" \
+            ./cmd/p2kb-mcp
+
+      - name: Smoke test - Version
+        run: |
+          ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-arm64 --version
+          ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-arm64 --version | grep -q "${{ steps.version.outputs.VERSION }}"
+
+      - name: Smoke test - MCP tools/list
+        run: |
+          echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | \
+            perl -e 'alarm 10; exec @ARGV' ./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-darwin-arm64 | \
+            head -100 | grep -q "p2kb_get"
+
+      - name: Upload macOS ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-darwin-arm64
+          path: p2kb-mcp-v*-darwin-arm64
+          retention-days: 1
+
+  # Build and test Windows AMD64
+  build-windows-amd64:
+    name: Build & Test Windows AMD64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Build Windows AMD64 binary
+        shell: bash
+        run: |
+          LDFLAGS="-s -w"
+          LDFLAGS="${LDFLAGS} -X 'main.Version=${{ steps.version.outputs.VERSION }}'"
+          LDFLAGS="${LDFLAGS} -X 'main.BuildTime=$(date -u +"%Y-%m-%d %H:%M:%S UTC")'"
+          LDFLAGS="${LDFLAGS} -X 'main.GitCommit=$(git rev-parse --short HEAD)'"
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \
+            -ldflags="${LDFLAGS}" \
+            -o "p2kb-mcp-v${{ steps.version.outputs.VERSION }}-windows-amd64.exe" \
+            ./cmd/p2kb-mcp
+
+      - name: Smoke test - Version
+        shell: pwsh
+        run: |
+          $output = & "./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-windows-amd64.exe" --version 2>&1 | Out-String
+          Write-Host "Version output: $output"
+          if ($output -notlike "*${{ steps.version.outputs.VERSION }}*") {
+            throw "Version mismatch: expected ${{ steps.version.outputs.VERSION }} in output"
+          }
+
+      - name: Smoke test - MCP tools/list
+        shell: pwsh
+        run: |
+          $response = '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | & "./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-windows-amd64.exe"
+          Write-Host $response
+          if ($response -notmatch "p2kb_get") {
+            throw "tools/list failed"
+          }
+
+      - name: Upload Windows AMD64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-windows-amd64
+          path: p2kb-mcp-v*-windows-amd64.exe
+          retention-days: 1
+
+  # Build Windows ARM64
+  build-windows-arm64:
+    name: Build Windows ARM64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Build Windows ARM64 binary
+        shell: bash
+        run: |
+          LDFLAGS="-s -w"
+          LDFLAGS="${LDFLAGS} -X 'main.Version=${{ steps.version.outputs.VERSION }}'"
+          LDFLAGS="${LDFLAGS} -X 'main.BuildTime=$(date -u +"%Y-%m-%d %H:%M:%S UTC")'"
+          LDFLAGS="${LDFLAGS} -X 'main.GitCommit=$(git rev-parse --short HEAD)'"
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build \
+            -ldflags="${LDFLAGS}" \
+            -o "p2kb-mcp-v${{ steps.version.outputs.VERSION }}-windows-arm64.exe" \
+            ./cmd/p2kb-mcp
+
+      - name: Verify binary was created
+        shell: pwsh
+        run: |
+          if (!(Test-Path "./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-windows-arm64.exe")) {
+            throw "Binary was not created"
+          }
+          $size = (Get-Item "./p2kb-mcp-v${{ steps.version.outputs.VERSION }}-windows-arm64.exe").Length
+          Write-Host "Binary size: $size bytes"
+          if ($size -lt 1000000) {
+            throw "Binary seems too small"
+          }
+
+      - name: Upload Windows ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-windows-arm64
+          path: p2kb-mcp-v*-windows-arm64.exe
+          retention-days: 1
+
+  # Assemble container-tools package
+  assemble-package:
+    name: Assemble Container Tools Package
+    runs-on: ubuntu-latest
+    needs:
+      - build-linux-amd64
+      - build-linux-arm64
+      - build-darwin-amd64
+      - build-darwin-arm64
+      - build-windows-amd64
+      - build-windows-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries/
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: List downloaded binaries
+        run: ls -la binaries/
+
+      - name: Create container-tools package structure
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PACKAGE_DIR="p2kb-mcp-v${VERSION}"
+          MCP_NAME="p2kb-mcp"
+
+          mkdir -p "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/platforms"
+
+          # Copy all binaries
+          cp binaries/* "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/platforms/"
+          chmod +x "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/platforms"/*
+
+      - name: Create universal launcher
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PACKAGE_DIR="p2kb-mcp-v${VERSION}"
+          MCP_NAME="p2kb-mcp"
+
+          cat > "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}" << 'LAUNCHER'
+          #!/usr/bin/env bash
+          set -e
+          LAUNCHER_VERSION="__VERSION__"
+          BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          PLATFORMS_DIR="${BIN_DIR}/platforms"
+          MCP_NAME="p2kb-mcp"
+
+          is_container() {
+              [ -f /.dockerenv ] && return 0
+              [ -n "${CONTAINER}" ] && return 0
+              [ -f /proc/1/cgroup ] && grep -qE 'docker|containerd|podman|kubernetes' /proc/1/cgroup 2>/dev/null && return 0
+              return 1
+          }
+
+          detect_arch() {
+              case "$(uname -m)" in
+                  x86_64|amd64) echo "amd64" ;;
+                  aarch64|arm64) echo "arm64" ;;
+                  *) echo "unknown" ;;
+              esac
+          }
+
+          detect_os() {
+              case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
+                  darwin) echo "darwin" ;;
+                  linux) echo "linux" ;;
+                  mingw*|msys*|cygwin*) echo "windows" ;;
+                  *) echo "unknown" ;;
+              esac
+          }
+
+          select_binary() {
+              local os=$(detect_os)
+              local arch=$(detect_arch)
+              local suffix=""
+              is_container && os="linux"
+              [ "$os" = "windows" ] && suffix=".exe"
+              echo "${PLATFORMS_DIR}/${MCP_NAME}-v${LAUNCHER_VERSION}-${os}-${arch}${suffix}"
+          }
+
+          exec "$(select_binary)" "$@"
+          LAUNCHER
+
+          sed -i "s/__VERSION__/${VERSION}/g" "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}"
+          chmod +x "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}"
+
+      - name: Create install script
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PACKAGE_DIR="p2kb-mcp-v${VERSION}"
+
+          cat > "${PACKAGE_DIR}/install.sh" << 'INSTALL'
+          #!/bin/bash
+          set -e
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          MCP_NAME="p2kb-mcp"
+          INSTALL_ROOT="/opt/container-tools"
+          MCP_JSON="${INSTALL_ROOT}/etc/mcp.json"
+
+          echo "Installing ${MCP_NAME}..."
+
+          if [ "$EUID" -ne 0 ] && [ ! -w "$INSTALL_ROOT" ]; then
+              exec sudo "$0" "$@"
+          fi
+
+          mkdir -p "${INSTALL_ROOT}/opt" "${INSTALL_ROOT}/etc"
+
+          if [ -d "${INSTALL_ROOT}/opt/${MCP_NAME}" ]; then
+              mv "${INSTALL_ROOT}/opt/${MCP_NAME}" "${INSTALL_ROOT}/opt/${MCP_NAME}.backup.$(date +%Y%m%d%H%M%S)"
+          fi
+
+          cp -r "${SCRIPT_DIR}/opt/${MCP_NAME}" "${INSTALL_ROOT}/opt/"
+          chmod +x "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}"
+          chmod +x "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/platforms"/*
+
+          if [ -f "$MCP_JSON" ]; then
+              if command -v jq &> /dev/null; then
+                  TEMP_JSON=$(mktemp)
+                  jq --arg cmd "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}" \
+                     '.mcpServers["p2kb-mcp"] = {"command": $cmd, "args": []}' \
+                     "$MCP_JSON" > "$TEMP_JSON"
+                  mv "$TEMP_JSON" "$MCP_JSON"
+              else
+                  echo "WARNING: jq not installed. Manually add p2kb-mcp to ${MCP_JSON}"
+              fi
+          else
+              cat > "$MCP_JSON" << MCPJSON
+          {
+            "mcpServers": {
+              "p2kb-mcp": {
+                "command": "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}",
+                "args": []
+              }
+            }
+          }
+          MCPJSON
+          fi
+
+          echo "Installation complete!"
+          echo "Test: ${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME} --version"
+          INSTALL
+
+          chmod +x "${PACKAGE_DIR}/install.sh"
+
+      - name: Create README and manifest
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          PACKAGE_DIR="p2kb-mcp-v${VERSION}"
+          MCP_NAME="p2kb-mcp"
+
+          cat > "${PACKAGE_DIR}/opt/${MCP_NAME}/README.md" << EOF
+          # P2KB MCP v${VERSION}
+
+          MCP server providing access to the Propeller 2 Knowledge Base for Claude.
+
+          ## Features
+          - Search and browse P2 Knowledge Base content
+          - Fetch PASM2 instruction documentation
+          - Fetch Spin2 method documentation
+          - Fetch architecture and hardware specs
+          - Batch operations for efficiency
+          - Local caching for performance
+
+          ## Usage
+          /opt/container-tools/opt/p2kb-mcp/bin/p2kb-mcp --version
+          EOF
+
+          cat > "${PACKAGE_DIR}/VERSION_MANIFEST.txt" << EOF
+          Package: ${MCP_NAME}
+          Version: ${VERSION}
+          Git Commit: $(git rev-parse --short HEAD)
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+          Platforms:
+            - linux-amd64
+            - linux-arm64
+            - darwin-amd64
+            - darwin-arm64
+            - windows-amd64
+            - windows-arm64
+          EOF
+
+      - name: Create tarball
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          tar -czf "p2kb-mcp-v${VERSION}.tar.gz" "p2kb-mcp-v${VERSION}"
+
+      - name: Upload container-tools package
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-tools-package
+          path: p2kb-mcp-v*.tar.gz
+          retention-days: 1
+
+  # Sign macOS binaries (optional)
+  sign-macos:
+    name: Sign macOS Binaries
+    runs-on: macos-latest
+    needs: [build-darwin-amd64, build-darwin-arm64, assemble-package]
+    if: ${{ vars.MACOS_SIGNING_ENABLED == 'true' }}
+    steps:
+      - name: Download darwin-amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin-amd64
+          path: binaries/
+
+      - name: Download darwin-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin-arm64
+          path: binaries/
+
+      - name: Download container-tools package
+        uses: actions/download-artifact@v4
+        with:
+          name: container-tools-package
+          path: package/
+
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          KEYCHAIN_PWD: ${{ secrets.KEYCHAIN_PWD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          echo -n "$MACOS_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
+
+          security create-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
+
+          security import $CERTIFICATE_PATH -P "$MACOS_CERTIFICATE_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Sign macOS binaries
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for binary in binaries/*darwin*; do
+            echo "Signing $binary..."
+            codesign --force --options runtime \
+              --sign "Developer ID Application: ${{ secrets.APPLE_DEVELOPER_NAME }} ($APPLE_TEAM_ID)" \
+              --timestamp \
+              "$binary"
+            codesign --verify --verbose "$binary"
+          done
+
+      - name: Notarize binaries
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd binaries
+          for binary in *darwin*; do
+            echo "Notarizing $binary..."
+            zip "${binary}.zip" "$binary"
+            xcrun notarytool submit "${binary}.zip" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+            rm "${binary}.zip"
+          done
+
+      - name: Rebuild container-tools package with signed binaries
+        run: |
+          cd package
+          tar -xzf *.tar.gz
+          rm *.tar.gz
+          PACKAGE_DIR=$(ls -d */ | head -1)
+          cp ../binaries/*darwin* "${PACKAGE_DIR}/opt/p2kb-mcp/bin/platforms/"
+          tar -czf "${PACKAGE_DIR%/}.tar.gz" "$PACKAGE_DIR"
+
+      - name: Upload signed darwin-amd64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-darwin-amd64-signed
+          path: binaries/*darwin-amd64*
+
+      - name: Upload signed darwin-arm64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-darwin-arm64-signed
+          path: binaries/*darwin-arm64*
+
+      - name: Upload signed container-tools package
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-tools-package-signed
+          path: package/*.tar.gz
+
+  # Create GitHub Release
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [assemble-package, sign-macos]
+    if: ${{ always() && needs.assemble-package.result == 'success' && (needs.sign-macos.result == 'success' || needs.sign-macos.result == 'skipped') }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Download linux-amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-linux-amd64
+          path: binaries/
+
+      - name: Download linux-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-linux-arm64
+          path: binaries/
+
+      - name: Download darwin-amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin-amd64
+          path: binaries/
+
+      - name: Download darwin-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-darwin-arm64
+          path: binaries/
+
+      - name: Download windows-amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-windows-amd64
+          path: binaries/
+
+      - name: Download windows-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-windows-arm64
+          path: binaries/
+
+      - name: Download container-tools package
+        uses: actions/download-artifact@v4
+        with:
+          name: container-tools-package
+          path: packages/
+
+      - name: Download signed darwin-amd64 binary (if available)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: binary-darwin-amd64-signed
+          path: binaries-signed/
+
+      - name: Download signed darwin-arm64 binary (if available)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: binary-darwin-arm64-signed
+          path: binaries-signed/
+
+      - name: Download signed container-tools package (if available)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: container-tools-package-signed
+          path: packages-signed/
+
+      - name: Use signed artifacts if available
+        run: |
+          if [ -d "packages-signed" ] && [ "$(ls -A packages-signed 2>/dev/null)" ]; then
+            echo "Using signed container-tools package"
+            rm -rf packages/*
+            mv packages-signed/* packages/
+            echo "SIGNED=true" >> $GITHUB_ENV
+          else
+            echo "Using unsigned container-tools package"
+            echo "SIGNED=false" >> $GITHUB_ENV
+          fi
+
+          if [ -d "binaries-signed" ] && [ "$(ls -A binaries-signed 2>/dev/null)" ]; then
+            echo "Using signed darwin binaries"
+            for signed in binaries-signed/*; do
+              if [ -f "$signed" ]; then
+                echo "  Replacing with signed: $(basename $signed)"
+                cp "$signed" binaries/
+              fi
+            done
+          fi
+
+      - name: Create individual binary archives
+        run: |
+          mkdir -p release
+          cd binaries
+          for binary in *; do
+            if [[ "$binary" == *.exe ]]; then
+              zip "../release/${binary%.exe}.zip" "$binary"
+            else
+              tar -czf "../release/${binary}.tar.gz" "$binary"
+            fi
+          done
+          mv ../packages/*.tar.gz ../release/
+
+      - name: List release artifacts
+        run: |
+          echo "Release artifacts:"
+          ls -la release/
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > checksums.txt
+          echo ""
+          echo "Checksums:"
+          cat checksums.txt
+
+      - name: Check if signed
+        id: check-signed
+        run: |
+          if [ "$SIGNED" = "true" ]; then
+            echo "MACOS_NOTE=macOS binaries are signed and notarized." >> $GITHUB_OUTPUT
+          else
+            echo "MACOS_NOTE=macOS binaries are unsigned. Run \`xattr -d com.apple.quarantine <binary>\` after download." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          files: |
+            release/*
+          body: |
+            ## P2KB MCP ${{ steps.version.outputs.VERSION }}
+
+            MCP server providing access to the Propeller 2 Knowledge Base for Claude.
+
+            ---
+
+            ### Option 1: Container-Tools Package (Recommended)
+
+            Best for users with `/opt/container-tools/` setup (works alongside other MCPs)
+
+            ```bash
+            # Download and extract
+            tar -xzf p2kb-mcp-${{ steps.version.outputs.VERSION }}.tar.gz
+            cd p2kb-mcp-${{ steps.version.outputs.VERSION }}
+
+            # Install (creates or merges into /opt/container-tools/)
+            ./install.sh
+
+            # Verify
+            /opt/container-tools/opt/p2kb-mcp/bin/p2kb-mcp --version
+            ```
+
+            ---
+
+            ### Option 2: Standalone Binary
+
+            Download a single binary for your platform:
+
+            | Platform | File |
+            |----------|------|
+            | Linux AMD64 | `p2kb-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz` |
+            | Linux ARM64 | `p2kb-mcp-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz` |
+            | macOS Apple Silicon | `p2kb-mcp-${{ steps.version.outputs.VERSION }}-darwin-arm64.tar.gz` |
+            | macOS Intel | `p2kb-mcp-${{ steps.version.outputs.VERSION }}-darwin-amd64.tar.gz` |
+            | Windows AMD64 | `p2kb-mcp-${{ steps.version.outputs.VERSION }}-windows-amd64.zip` |
+            | Windows ARM64 | `p2kb-mcp-${{ steps.version.outputs.VERSION }}-windows-arm64.zip` |
+
+            ---
+
+            ### Platform Notes
+            - **macOS**: ${{ steps.check-signed.outputs.MACOS_NOTE }}
+
+            ### Features
+            - Search P2 Knowledge Base by key or term
+            - Browse categories (PASM2, Spin2, Architecture, etc.)
+            - Fetch documentation with automatic caching
+            - Batch operations for multiple keys
+            - Related instruction lookup
+
+            ### Checksums
+            See `checksums.txt` for SHA256 checksums of all files.

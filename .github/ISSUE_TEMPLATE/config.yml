@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: P2 Knowledge Base
+    url: https://github.com/ironsheep/P2-Knowledge-Base
+    about: Main P2KB repository and documentation
+  - name: API Documentation
+    url: https://github.com/ironsheep/p2kb-mcp/blob/main/DOCs/API.md
+    about: Check the API documentation before reporting issues
+  - name: Installation Guide
+    url: https://github.com/ironsheep/p2kb-mcp/blob/main/INSTALL.md
+    about: Installation and setup instructions

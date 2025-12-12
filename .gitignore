@@ -30,3 +30,27 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Project binaries
+p2kb-mcp
+p2kb-mcp-*
+
+# Build output
+dist/
+builds/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local cache
+.p2kb-mcp/
+
+# Local devcontainer setup (not versioned)
+.devcontainer/local-setup.sh
+
+# Local MCP configuration
+.mcp.json
+
+# Local Claude Code settings
+.claude/settings.local.json

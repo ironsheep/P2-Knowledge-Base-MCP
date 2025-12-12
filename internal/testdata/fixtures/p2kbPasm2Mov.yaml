@@ -1,0 +1,27 @@
+mnemonic: MOV
+category: Data Movement
+last_updated: "2025-01-01"
+documentation_source: "test"
+syntax:
+  - "MOV D,S"
+  - "MOV D,#N"
+description: |
+  Copy source to destination.
+
+  The MOV instruction copies the value from the source operand
+  to the destination register.
+opcodes:
+  - encoding: "EEEE 0110000 CZI DDDDDDDDD SSSSSSSSS"
+    description: "MOV D,S/# - Copy S to D"
+flags:
+  C: "Set if S[31] = 1"
+  Z: "Set if D = 0"
+examples:
+  - code: "MOV pa, pb"
+    description: "Copy pb to pa"
+  - code: "MOV count, #100"
+    description: "Set count to 100"
+related_instructions:
+  - p2kbPasm2Add
+  - p2kbPasm2Loc
+  - p2kbPasm2Rdlong

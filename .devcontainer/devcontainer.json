@@ -1,0 +1,53 @@
+{
+  "name": "P2KB MCP Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-azuretools.vscode-docker",
+        "streetsidesoftware.code-spell-checker",
+        "eamodio.gitlens",
+        "usernamehw.errorlens",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "go.lintOnSave": "package",
+        "go.formatTool": "goimports",
+        "go.coverOnSave": true,
+        "go.coverageDecorator": {
+          "type": "gutter",
+          "coveredHighlightColor": "rgba(64,128,64,0.2)",
+          "uncoveredHighlightColor": "rgba(128,64,64,0.2)"
+        },
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
+        "[go]": {
+          "editor.defaultFormatter": "golang.go"
+        }
+      }
+    }
+  },
+  "postCreateCommand": "go mod download && go install golang.org/x/tools/gopls@latest && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; [ -f .devcontainer/local-setup.sh ] && bash .devcontainer/local-setup.sh || true",
+  "remoteUser": "vscode",
+  "runArgs": ["--init"],
+  "forwardPorts": [],
+  "containerEnv": {
+    "P2KB_LOG_LEVEL": "debug"
+  }
+}

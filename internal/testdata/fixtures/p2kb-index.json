@@ -1,0 +1,19 @@
+{
+  "system": {
+    "version": "test-1.0.0",
+    "generated": "2025-12-12T10:00:00",
+    "total_entries": 5,
+    "total_categories": 2
+  },
+  "categories": {
+    "pasm2_math": ["p2kbPasm2Mov", "p2kbPasm2Add"],
+    "architecture_core": ["p2kbArchCog"]
+  },
+  "files": {
+    "p2kbPasm2Mov": {"path": "deliverables/ai/P2/pasm2/instructions/mov.yaml", "mtime": 1700000000},
+    "p2kbPasm2Add": {"path": "deliverables/ai/P2/pasm2/instructions/add.yaml", "mtime": 1700000000},
+    "p2kbArchCog": {"path": "deliverables/ai/P2/architecture/cog.yaml", "mtime": 1700000000},
+    "p2kbGuideQuickQueries": {"path": "deliverables/ai/P2/guides/quick-queries.yaml", "mtime": 1700000000},
+    "p2kbSpin2Pinwrite": {"path": "deliverables/ai/P2/spin2/methods/pinwrite.yaml", "mtime": 1700000000}
+  }
+}
