@@ -31,9 +31,9 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Project binaries
-p2kb-mcp
-p2kb-mcp-*
+# Project binaries (at root level only)
+/p2kb-mcp
+/p2kb-mcp-*
 
 # Build output
 dist/
