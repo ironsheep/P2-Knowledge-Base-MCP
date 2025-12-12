@@ -491,7 +491,7 @@ jobs:
       - name: Create tarball
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          tar -czf "p2kb-mcp-v${VERSION}.tar.gz" "p2kb-mcp-v${VERSION}"
+          tar -czf "p2kb-mcp-v${VERSION}-container-tools.tar.gz" "p2kb-mcp-v${VERSION}"
 
       - name: Upload container-tools package
         uses: actions/upload-artifact@v4
@@ -582,7 +582,7 @@ jobs:
           rm *.tar.gz
           PACKAGE_DIR=$(ls -d */ | head -1)
           cp ../binaries/*darwin* "${PACKAGE_DIR}/opt/p2kb-mcp/bin/platforms/"
-          tar -czf "${PACKAGE_DIR%/}.tar.gz" "$PACKAGE_DIR"
+          tar -czf "${PACKAGE_DIR%/}-container-tools.tar.gz" "$PACKAGE_DIR"
 
       - name: Upload signed darwin-amd64 binary
         uses: actions/upload-artifact@v4
@@ -757,7 +757,7 @@ jobs:
 
             ```bash
             # Download and extract
-            tar -xzf p2kb-mcp-${{ steps.version.outputs.VERSION }}.tar.gz
+            tar -xzf p2kb-mcp-${{ steps.version.outputs.VERSION }}-container-tools.tar.gz
             cd p2kb-mcp-${{ steps.version.outputs.VERSION }}
 
             # Install (creates or merges into /opt/container-tools/)
