@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
 func TestNewManager(t *testing.T) {
@@ -18,19 +20,14 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestGetCacheDir(t *testing.T) {
-	// Test default
-	dir := getCacheDir()
-	if dir == "" {
-		t.Error("getCacheDir() returned empty string")
-	}
-
-	// Test with env var
-	os.Setenv("P2KB_CACHE_DIR", "/tmp/test-cache")
+	// Test with env var - using a writable temp directory
+	tmpDir := t.TempDir()
+	os.Setenv("P2KB_CACHE_DIR", tmpDir)
 	defer os.Unsetenv("P2KB_CACHE_DIR")
 
-	dir = getCacheDir()
-	if dir != "/tmp/test-cache" {
-		t.Errorf("getCacheDir() = %q, want /tmp/test-cache", dir)
+	dir := paths.GetCacheDirOrDefault()
+	if dir != tmpDir {
+		t.Errorf("GetCacheDirOrDefault() = %q, want %q", dir, tmpDir)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
+	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
 const (
@@ -32,7 +33,7 @@ type cacheEntry struct {
 // NewManager creates a new cache manager.
 func NewManager() *Manager {
 	return &Manager{
-		cacheDir: getCacheDir(),
+		cacheDir: paths.GetCacheDirOrDefault(),
 		memory:   make(map[string]cacheEntry),
 	}
 }
@@ -157,16 +158,3 @@ func (m *Manager) saveToDisk(key, content string) error {
 	return os.WriteFile(cachePath, []byte(content), 0644)
 }
 
-// getCacheDir returns the cache directory path.
-func getCacheDir() string {
-	if dir := os.Getenv("P2KB_CACHE_DIR"); dir != "" {
-		return dir
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".p2kb-mcp"
-	}
-
-	return filepath.Join(home, ".p2kb-mcp")
-}

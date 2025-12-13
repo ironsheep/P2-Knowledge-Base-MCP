@@ -18,14 +18,35 @@ Gives Claude direct access to comprehensive Propeller 2 documentation:
 
 ## Quick Start
 
-1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
-2. Download the binary for your platform (e.g., `p2kb-mcp-vX.X.X-linux-amd64.tar.gz`)
-3. Extract and make executable:
+### Option 1: Container-Tools Package (Recommended)
+
+For installations in `/opt/container-tools/` (works alongside other MCPs):
 
 ```bash
-tar -xzf p2kb-mcp-v*.tar.gz
-chmod +x p2kb-mcp-v*
-./p2kb-mcp-v* --version
+# Download and extract
+tar -xzf p2kb-mcp-vX.X.X-container-tools.tar.gz
+cd p2kb-mcp
+
+# Install
+sudo ./install.sh
+
+# Verify
+/opt/container-tools/bin/p2kb-mcp --version
+```
+
+### Option 2: Standalone Package
+
+For single-platform installations:
+
+```bash
+# Download and extract
+tar -xzf p2kb-mcp-vX.X.X-linux-amd64.tar.gz
+
+# Move to /opt (or your preferred location)
+sudo mv p2kb-mcp /opt/
+
+# Verify
+/opt/p2kb-mcp/bin/p2kb-mcp --version
 ```
 
 Add to your MCP configuration:
@@ -34,7 +55,7 @@ Add to your MCP configuration:
 {
   "mcpServers": {
     "p2kb-mcp": {
-      "command": "/path/to/p2kb-mcp",
+      "command": "/opt/container-tools/bin/p2kb-mcp",
       "args": []
     }
   }

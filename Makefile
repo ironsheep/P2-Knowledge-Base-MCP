@@ -1,4 +1,4 @@
-.PHONY: build test clean install all help lint dist test-short test-live test-coverage fmt vuln deps
+.PHONY: build test clean install all help lint dist test-short test-live test-coverage fmt vuln deps standalone container-tools packages clean-all
 
 # Version info
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -20,18 +20,23 @@ help:
 	@echo "P2KB MCP Build System"
 	@echo ""
 	@echo "Targets:"
-	@echo "  build          Build binary for current platform"
-	@echo "  test           Run all tests"
-	@echo "  test-short     Run fast tests only (no network)"
-	@echo "  test-live      Run live GitHub integration tests"
-	@echo "  test-coverage  Run tests with coverage report"
-	@echo "  lint           Run linters"
-	@echo "  clean          Remove build artifacts"
-	@echo "  dist           Build binaries for all platforms"
-	@echo "  install        Install binary to /usr/local/bin"
+	@echo "  build            Build binary for current platform"
+	@echo "  test             Run all tests"
+	@echo "  test-short       Run fast tests only (no network)"
+	@echo "  test-live        Run live GitHub integration tests"
+	@echo "  test-coverage    Run tests with coverage report"
+	@echo "  lint             Run linters"
+	@echo "  clean            Remove build artifacts"
+	@echo "  dist             Build binaries for all platforms"
+	@echo "  install          Install binary to /usr/local/bin"
+	@echo ""
+	@echo "Packaging:"
+	@echo "  standalone       Build standalone packages for all platforms"
+	@echo "  container-tools  Build container-tools multi-platform package"
+	@echo "  packages         Build all distribution packages"
 	@echo ""
 	@echo "Variables:"
-	@echo "  VERSION        Version string (default: from VERSION file)"
+	@echo "  VERSION          Version string (default: from VERSION file)"
 
 # Build for current platform
 build:
@@ -130,6 +135,21 @@ deps:
 	go mod tidy
 	go mod download
 
-# Build container-tools package locally
-container-tools: dist
+# Build standalone packages for all platforms
+standalone:
+	./scripts/build-standalone.sh
+
+# Build container-tools multi-platform package
+container-tools:
 	./scripts/build-container-tools.sh
+
+# Build all distribution packages
+packages: standalone container-tools
+	@echo ""
+	@echo "All packages built!"
+	@echo "  Standalone: builds/standalone/"
+	@echo "  Container:  builds/container-tools/"
+
+# Clean all build artifacts including packages
+clean-all: clean
+	rm -rf builds/

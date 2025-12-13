@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Package structure redesign** for better platform compatibility:
+  - Standalone packages now use opt-style layout (`p2kb-mcp/bin/p2kb-mcp`)
+  - Container-tools package installs to `/opt/container-tools/p2kb-mcp/`
+  - All packages include README.md, CHANGELOG.md, and LICENSE
+
+- **Platform-specific cache locations**:
+  - Container-tools: `/opt/container-tools/var/cache/p2kb-mcp/`
+  - Standalone Linux/macOS: `.cache/` directory next to binary (hidden folder)
+  - Windows: `%LOCALAPPDATA%\p2kb-mcp\cache\`
+
+- **New `internal/paths` package** for centralized path resolution
+
+### Added
+
+- Standalone package builds for all 6 platforms
+- `make standalone` and `make packages` build targets
+- Symlink creation in container-tools install (`/opt/container-tools/bin/p2kb-mcp`)
+
 ## [1.0.0] - 2025-12-12
 
 ### Added

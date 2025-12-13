@@ -2,7 +2,8 @@
 #
 # build-container-tools.sh - Build the container-tools distribution package
 #
-# Creates a tarball that can be installed alongside other MCPs in /opt/container-tools/
+# Creates a tarball that installs to /opt/container-tools/p2kb-mcp/
+# with cache at /opt/container-tools/var/cache/p2kb-mcp/
 #
 set -e
 
@@ -17,7 +18,7 @@ if [ -z "$VERSION" ]; then
 fi
 
 MCP_NAME="p2kb-mcp"
-PACKAGE_NAME="${MCP_NAME}-v${VERSION}"
+PACKAGE_NAME="${MCP_NAME}-v${VERSION}-container-tools"
 BUILD_DIR="${REPO_ROOT}/builds/container-tools"
 PACKAGE_DIR="${BUILD_DIR}/${PACKAGE_NAME}"
 
@@ -34,8 +35,17 @@ echo "Build Date: ${BUILD_DATE}"
 echo ""
 
 # Clean and create build directory
+# Package structure:
+#   p2kb-mcp/
+#   ├── bin/
+#   │   ├── p2kb-mcp           (universal launcher)
+#   │   └── platforms/         (platform binaries)
+#   ├── README.md
+#   ├── CHANGELOG.md
+#   ├── LICENSE
+#   └── install.sh
 rm -rf "${PACKAGE_DIR}"
-mkdir -p "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/platforms"
+mkdir -p "${PACKAGE_DIR}/${MCP_NAME}/bin/platforms"
 
 # Build function
 build_binary() {
@@ -53,7 +63,7 @@ build_binary() {
 
     CGO_ENABLED=0 GOOS=${os} GOARCH=${arch} go build \
         -ldflags="${LDFLAGS}" \
-        -o "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/platforms/${output_name}" \
+        -o "${PACKAGE_DIR}/${MCP_NAME}/bin/platforms/${output_name}" \
         "${REPO_ROOT}/cmd/p2kb-mcp"
 }
 
@@ -71,7 +81,7 @@ echo ""
 echo "Creating universal launcher..."
 
 # Create universal launcher script
-cat > "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}" << 'LAUNCHER'
+cat > "${PACKAGE_DIR}/${MCP_NAME}/bin/${MCP_NAME}" << 'LAUNCHER'
 #!/usr/bin/env bash
 #
 # Universal launcher for p2kb-mcp
@@ -154,146 +164,74 @@ exec "$(select_binary)" "$@"
 LAUNCHER
 
 # Replace version placeholder
-sed -i.bak "s/__VERSION__/${VERSION}/g" "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}"
-rm -f "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}.bak"
-chmod +x "${PACKAGE_DIR}/opt/${MCP_NAME}/bin/${MCP_NAME}"
+sed -i.bak "s/__VERSION__/${VERSION}/g" "${PACKAGE_DIR}/${MCP_NAME}/bin/${MCP_NAME}"
+rm -f "${PACKAGE_DIR}/${MCP_NAME}/bin/${MCP_NAME}.bak"
+chmod +x "${PACKAGE_DIR}/${MCP_NAME}/bin/${MCP_NAME}"
 
-echo "Creating test script..."
+echo "Copying documentation files..."
 
-# Create test-platforms.sh
-cat > "${PACKAGE_DIR}/opt/${MCP_NAME}/test-platforms.sh" << 'TESTSCRIPT'
-#!/bin/bash
-#
-# Test that all platform binaries are valid executables
-#
-set -e
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLATFORMS_DIR="${SCRIPT_DIR}/bin/platforms"
-
-echo "Testing platform binaries..."
-echo ""
-
-for binary in "${PLATFORMS_DIR}"/*; do
-    name=$(basename "$binary")
-    printf "  %-45s " "$name"
-
-    if [ -x "$binary" ] || [[ "$name" == *.exe ]]; then
-        # Check if it's a valid executable (file magic)
-        file_type=$(file -b "$binary" 2>/dev/null || echo "unknown")
-        if echo "$file_type" | grep -qiE 'executable|mach-o|pe32|elf'; then
-            echo "OK (${file_type:0:30}...)"
-        else
-            echo "WARN: ${file_type:0:40}"
-        fi
-    else
-        echo "FAIL: not executable"
-    fi
-done
-
-echo ""
-echo "Testing launcher..."
-"${SCRIPT_DIR}/bin/p2kb-mcp" --version && echo "Launcher: OK" || echo "Launcher: FAIL"
-TESTSCRIPT
-
-chmod +x "${PACKAGE_DIR}/opt/${MCP_NAME}/test-platforms.sh"
-
-echo "Creating README..."
-
-# Create README
-cat > "${PACKAGE_DIR}/opt/${MCP_NAME}/README.md" << README
-# P2KB MCP v${VERSION}
-
-MCP server providing access to the Propeller 2 Knowledge Base for Claude.
-
-## Features
-
-- Search and browse P2 Knowledge Base content
-- Fetch PASM2 instruction documentation
-- Fetch Spin2 method documentation
-- Fetch architecture and hardware specs
-- Batch operations for efficiency
-- Local caching for performance
-
-## Usage
-
-The universal launcher automatically selects the correct binary:
-
-\`\`\`bash
-/opt/container-tools/opt/p2kb-mcp/bin/p2kb-mcp --version
-\`\`\`
-
-## MCP Configuration
-
-Add to your Claude MCP config:
-
-\`\`\`json
-{
-  "mcpServers": {
-    "p2kb-mcp": {
-      "command": "/opt/container-tools/opt/p2kb-mcp/bin/p2kb-mcp",
-      "args": []
-    }
-  }
-}
-\`\`\`
-
-## Build Info
-
-- Version: ${VERSION}
-- Git Commit: ${GIT_COMMIT}
-- Build Date: ${BUILD_DATE}
-README
+# Copy README, CHANGELOG, LICENSE from repo root
+cp "${REPO_ROOT}/README.md" "${PACKAGE_DIR}/${MCP_NAME}/"
+cp "${REPO_ROOT}/CHANGELOG.md" "${PACKAGE_DIR}/${MCP_NAME}/"
+cp "${REPO_ROOT}/LICENSE" "${PACKAGE_DIR}/${MCP_NAME}/"
 
 echo "Creating install script..."
 
 # Create install.sh
-cat > "${PACKAGE_DIR}/install.sh" << 'INSTALL'
+cat > "${PACKAGE_DIR}/${MCP_NAME}/install.sh" << 'INSTALL'
 #!/bin/bash
 #
 # Install p2kb-mcp into /opt/container-tools/
-# Merges with existing MCP installations
+# Creates proper directory structure for container-tools ecosystem
 #
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCP_NAME="p2kb-mcp"
 INSTALL_ROOT="/opt/container-tools"
-MCP_JSON="${INSTALL_ROOT}/etc/mcp.json"
 
-echo "Installing ${MCP_NAME}..."
+echo "Installing ${MCP_NAME} to ${INSTALL_ROOT}..."
 echo ""
 
 # Check for root/sudo
-if [ "$EUID" -ne 0 ] && [ ! -w "$INSTALL_ROOT" ]; then
+if [ "$EUID" -ne 0 ] && [ ! -w "$INSTALL_ROOT" ] 2>/dev/null; then
     echo "This script requires sudo to install to ${INSTALL_ROOT}"
     echo "Re-running with sudo..."
     exec sudo "$0" "$@"
 fi
 
-# Create base directory if it doesn't exist
-if [ ! -d "$INSTALL_ROOT" ]; then
-    echo "Creating ${INSTALL_ROOT}..."
-    mkdir -p "${INSTALL_ROOT}/opt"
-    mkdir -p "${INSTALL_ROOT}/etc"
-fi
+# Create container-tools directory structure
+echo "Creating directory structure..."
+mkdir -p "${INSTALL_ROOT}/bin"
+mkdir -p "${INSTALL_ROOT}/etc"
+mkdir -p "${INSTALL_ROOT}/var/cache/${MCP_NAME}"
 
 # Backup existing installation if present
-if [ -d "${INSTALL_ROOT}/opt/${MCP_NAME}" ]; then
+if [ -d "${INSTALL_ROOT}/${MCP_NAME}" ]; then
     echo "Backing up existing ${MCP_NAME}..."
-    mv "${INSTALL_ROOT}/opt/${MCP_NAME}" "${INSTALL_ROOT}/opt/${MCP_NAME}.backup.$(date +%Y%m%d%H%M%S)"
+    mv "${INSTALL_ROOT}/${MCP_NAME}" "${INSTALL_ROOT}/${MCP_NAME}.backup.$(date +%Y%m%d%H%M%S)"
 fi
 
-# Copy our files
+# Copy MCP files
 echo "Copying ${MCP_NAME} files..."
-cp -r "${SCRIPT_DIR}/opt/${MCP_NAME}" "${INSTALL_ROOT}/opt/"
+cp -r "${SCRIPT_DIR}" "${INSTALL_ROOT}/${MCP_NAME}"
+
+# Remove install.sh from installed location (not needed after install)
+rm -f "${INSTALL_ROOT}/${MCP_NAME}/install.sh"
 
 # Make binaries executable
-chmod +x "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}"
-chmod +x "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/platforms"/*
-chmod +x "${INSTALL_ROOT}/opt/${MCP_NAME}/test-platforms.sh"
+chmod +x "${INSTALL_ROOT}/${MCP_NAME}/bin/${MCP_NAME}"
+chmod +x "${INSTALL_ROOT}/${MCP_NAME}/bin/platforms"/*
 
-# Merge into mcp.json
+# Create symlink in bin directory
+echo "Creating symlink..."
+ln -sf "../${MCP_NAME}/bin/${MCP_NAME}" "${INSTALL_ROOT}/bin/${MCP_NAME}"
+
+# Set up cache directory permissions
+chmod 755 "${INSTALL_ROOT}/var/cache/${MCP_NAME}"
+
+# Update mcp.json
+MCP_JSON="${INSTALL_ROOT}/etc/mcp.json"
 echo "Updating MCP configuration..."
 
 if [ -f "$MCP_JSON" ]; then
@@ -301,7 +239,7 @@ if [ -f "$MCP_JSON" ]; then
     if command -v jq &> /dev/null; then
         # Merge our entry into existing config
         TEMP_JSON=$(mktemp)
-        jq --arg cmd "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}" \
+        jq --arg cmd "${INSTALL_ROOT}/bin/${MCP_NAME}" \
            '.mcpServers["p2kb-mcp"] = {"command": $cmd, "args": []}' \
            "$MCP_JSON" > "$TEMP_JSON"
         mv "$TEMP_JSON" "$MCP_JSON"
@@ -311,7 +249,7 @@ if [ -f "$MCP_JSON" ]; then
         echo "WARNING: jq not installed. Please manually add to ${MCP_JSON}:"
         echo ""
         echo '  "p2kb-mcp": {'
-        echo "    \"command\": \"${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}\","
+        echo "    \"command\": \"${INSTALL_ROOT}/bin/${MCP_NAME}\","
         echo '    "args": []'
         echo '  }'
         echo ""
@@ -322,7 +260,7 @@ else
 {
   "mcpServers": {
     "p2kb-mcp": {
-      "command": "${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME}",
+      "command": "${INSTALL_ROOT}/bin/${MCP_NAME}",
       "args": []
     }
   }
@@ -332,16 +270,20 @@ MCPJSON
 fi
 
 echo ""
+echo "=============================================="
 echo "Installation complete!"
+echo "=============================================="
 echo ""
-echo "Verify with:"
-echo "  ${INSTALL_ROOT}/opt/${MCP_NAME}/test-platforms.sh"
+echo "Installed to: ${INSTALL_ROOT}/${MCP_NAME}/"
+echo "Symlink:      ${INSTALL_ROOT}/bin/${MCP_NAME}"
+echo "Cache:        ${INSTALL_ROOT}/var/cache/${MCP_NAME}/"
+echo "Config:       ${INSTALL_ROOT}/etc/mcp.json"
 echo ""
-echo "Test the binary:"
-echo "  ${INSTALL_ROOT}/opt/${MCP_NAME}/bin/${MCP_NAME} --version"
+echo "Test the installation:"
+echo "  ${INSTALL_ROOT}/bin/${MCP_NAME} --version"
 INSTALL
 
-chmod +x "${PACKAGE_DIR}/install.sh"
+chmod +x "${PACKAGE_DIR}/${MCP_NAME}/install.sh"
 
 echo "Creating VERSION_MANIFEST.txt..."
 
@@ -352,6 +294,10 @@ Version: ${VERSION}
 Git Commit: ${GIT_COMMIT}
 Build Date: ${BUILD_DATE}
 Build Host: $(hostname 2>/dev/null || echo "unknown")
+
+Package Type: container-tools
+Install Location: /opt/container-tools/${MCP_NAME}/
+Cache Location: /opt/container-tools/var/cache/${MCP_NAME}/
 
 Platforms:
   - darwin-amd64
@@ -365,9 +311,9 @@ MANIFEST
 echo ""
 echo "Creating tarball..."
 
-# Create tarball
+# Create tarball - package contains p2kb-mcp/ directory
 cd "${BUILD_DIR}"
-tar -czf "${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
+tar -czf "${PACKAGE_NAME}.tar.gz" -C "${PACKAGE_NAME}" "${MCP_NAME}" VERSION_MANIFEST.txt
 
 echo ""
 echo "=============================================="
@@ -376,10 +322,10 @@ echo "=============================================="
 echo ""
 echo "Package: ${BUILD_DIR}/${PACKAGE_NAME}.tar.gz"
 echo ""
-echo "Contents:"
-find "${PACKAGE_NAME}" -type f | sed 's/^/  /'
+echo "Package contents:"
+tar -tzf "${PACKAGE_NAME}.tar.gz" | sed 's/^/  /'
 echo ""
 echo "To install:"
 echo "  tar -xzf ${PACKAGE_NAME}.tar.gz"
-echo "  cd ${PACKAGE_NAME}"
-echo "  ./install.sh"
+echo "  cd ${MCP_NAME}"
+echo "  sudo ./install.sh"

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
 const (
@@ -63,7 +65,7 @@ type Manager struct {
 
 // NewManager creates a new index manager.
 func NewManager() *Manager {
-	cacheDir := getCacheDir()
+	cacheDir := paths.GetCacheDirOrDefault()
 	return &Manager{
 		indexPath: filepath.Join(cacheDir, "index", "p2kb-index.json"),
 		metaPath:  filepath.Join(cacheDir, "index", "p2kb-index.meta"),
@@ -364,19 +366,6 @@ func (m *Manager) saveToCache(data []byte) error {
 	return os.WriteFile(m.indexPath, data, 0644)
 }
 
-// getCacheDir returns the cache directory path.
-func getCacheDir() string {
-	if dir := os.Getenv("P2KB_CACHE_DIR"); dir != "" {
-		return dir
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".p2kb-mcp"
-	}
-
-	return filepath.Join(home, ".p2kb-mcp")
-}
 
 // getIndexTTL returns the index TTL from environment or default.
 func getIndexTTL() time.Duration {
