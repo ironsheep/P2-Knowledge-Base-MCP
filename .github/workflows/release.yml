@@ -693,7 +693,7 @@ jobs:
           tar -xzf *.tar.gz
           rm *.tar.gz
           PACKAGE_DIR=$(ls -d */ | head -1)
-          cp ../binaries/*darwin* "${PACKAGE_DIR}/opt/p2kb-mcp/bin/platforms/"
+          cp ../binaries/*darwin* "${PACKAGE_DIR}/bin/platforms/"
           tar -czf "${PACKAGE_DIR%/}-container-tools.tar.gz" "$PACKAGE_DIR"
 
       - name: Upload signed darwin-amd64 binary
