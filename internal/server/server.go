@@ -10,6 +10,7 @@ import (
 
 	"github.com/ironsheep/p2kb-mcp/internal/cache"
 	"github.com/ironsheep/p2kb-mcp/internal/index"
+	"github.com/ironsheep/p2kb-mcp/internal/obex"
 )
 
 // Server handles MCP protocol communication over stdio.
@@ -17,6 +18,7 @@ type Server struct {
 	version      string
 	indexManager *index.Manager
 	cacheManager *cache.Manager
+	obexManager  *obex.Manager
 }
 
 // MCPRequest represents an incoming JSON-RPC 2.0 request.
@@ -48,6 +50,7 @@ func New(version string) *Server {
 		version:      version,
 		indexManager: index.NewManager(),
 		cacheManager: cache.NewManager(),
+		obexManager:  obex.NewManager(),
 	}
 }
 

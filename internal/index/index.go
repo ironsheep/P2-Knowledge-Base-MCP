@@ -53,6 +53,17 @@ type Stats struct {
 	TotalCategories int
 }
 
+// IndexStatus contains index freshness information.
+type IndexStatus struct {
+	LastUpdated   time.Time `json:"last_updated"`
+	AgeSeconds    int64     `json:"age_seconds"`
+	NeedsRefresh  bool      `json:"needs_refresh"`
+	TTLSeconds    int64     `json:"ttl_seconds"`
+	Version       string    `json:"version"`
+	CacheFilePath string    `json:"cache_file_path"`
+	IsCached      bool      `json:"is_cached"`
+}
+
 // Manager handles index operations.
 type Manager struct {
 	mu          sync.RWMutex
@@ -196,6 +207,215 @@ func (m *Manager) FindSimilarKeys(key string, limit int) []string {
 	return matches
 }
 
+// QueryMatch represents a key that matches a natural language query.
+type QueryMatch struct {
+	Key      string  `json:"key"`
+	Score    float64 `json:"score"`
+	Category string  `json:"category,omitempty"`
+}
+
+// MatchQuery finds keys matching a natural language query.
+// Returns exact match if query is a valid key, otherwise finds best matches.
+// Query examples: "mov instruction", "pasm2 add", "spin2 pinwrite", "cog architecture"
+func (m *Manager) MatchQuery(query string) ([]QueryMatch, error) {
+	if err := m.EnsureIndex(); err != nil {
+		return nil, err
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Check for exact key match first
+	if _, ok := m.index.Files[query]; ok {
+		cat := m.getKeyCategory(query)
+		return []QueryMatch{{Key: query, Score: 1.0, Category: cat}}, nil
+	}
+
+	// Tokenize the query
+	queryTokens := tokenizeQuery(query)
+	if len(queryTokens) == 0 {
+		return nil, fmt.Errorf("empty query")
+	}
+
+	// Score each key
+	var matches []QueryMatch
+	for key := range m.index.Files {
+		keyTokens := tokenizeKey(key)
+		score := scoreMatch(queryTokens, keyTokens)
+		if score > 0 {
+			cat := m.getKeyCategory(key)
+			matches = append(matches, QueryMatch{Key: key, Score: score, Category: cat})
+		}
+	}
+
+	// Sort by score descending
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Score > matches[j].Score
+	})
+
+	// Limit results
+	if len(matches) > 20 {
+		matches = matches[:20]
+	}
+
+	return matches, nil
+}
+
+// getKeyCategory returns the first category a key belongs to (internal, no lock).
+func (m *Manager) getKeyCategory(key string) string {
+	for cat, keys := range m.index.Categories {
+		for _, k := range keys {
+			if k == key {
+				return cat
+			}
+		}
+	}
+	return ""
+}
+
+// tokenizeKey splits a CamelCase key into lowercase tokens.
+// "p2kbPasm2Mov" -> ["p2kb", "pasm2", "mov"]
+// "p2kbArchCogMemory" -> ["p2kb", "arch", "cog", "memory"]
+func tokenizeKey(key string) []string {
+	var tokens []string
+	var current strings.Builder
+
+	for i, r := range key {
+		// Start new token on uppercase letter
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			prev := rune(key[i-1])
+			// Split on: lowercase->uppercase or digit->uppercase transitions
+			if (prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9') {
+				if current.Len() > 0 {
+					tokens = append(tokens, strings.ToLower(current.String()))
+					current.Reset()
+				}
+			}
+		}
+		current.WriteRune(r)
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, strings.ToLower(current.String()))
+	}
+
+	return tokens
+}
+
+// tokenizeQuery splits a natural language query into lowercase tokens.
+// "MOV instruction" -> ["mov", "instruction"]
+// "spin2 pinwrite method" -> ["spin2", "pinwrite", "method"]
+func tokenizeQuery(query string) []string {
+	query = strings.ToLower(query)
+	// Split on non-alphanumeric characters
+	var tokens []string
+	var current strings.Builder
+
+	for _, r := range query {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			current.WriteRune(r)
+		} else {
+			if current.Len() > 0 {
+				tokens = append(tokens, current.String())
+				current.Reset()
+			}
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+
+	return tokens
+}
+
+// scoreMatch calculates how well query tokens match key tokens.
+// Returns a score from 0 to 1, where 1 is a perfect match.
+func scoreMatch(queryTokens, keyTokens []string) float64 {
+	if len(queryTokens) == 0 || len(keyTokens) == 0 {
+		return 0
+	}
+
+	// Skip common prefix "p2kb" in scoring
+	filteredKeyTokens := keyTokens
+	if len(keyTokens) > 0 && keyTokens[0] == "p2kb" {
+		filteredKeyTokens = keyTokens[1:]
+	}
+
+	// Count matching tokens
+	matches := 0
+	for _, qt := range queryTokens {
+		for _, kt := range filteredKeyTokens {
+			// Exact match
+			if qt == kt {
+				matches++
+				break
+			}
+			// Substring match (for partial words like "mov" matching "move")
+			if len(qt) >= 3 && strings.Contains(kt, qt) {
+				matches++
+				break
+			}
+			// Prefix match
+			if len(qt) >= 3 && strings.HasPrefix(kt, qt) {
+				matches++
+				break
+			}
+		}
+	}
+
+	if matches == 0 {
+		return 0
+	}
+
+	// Score: ratio of matched query tokens, with bonus for more specific matches
+	score := float64(matches) / float64(len(queryTokens))
+
+	// Bonus for matching more key tokens
+	if matches == len(queryTokens) && len(queryTokens) > 1 {
+		score += 0.1
+	}
+
+	// Cap at 1.0
+	if score > 1.0 {
+		score = 1.0
+	}
+
+	return score
+}
+
+// GetAllKeys returns all keys in the index.
+func (m *Manager) GetAllKeys() []string {
+	if err := m.EnsureIndex(); err != nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keys := make([]string, 0, len(m.index.Files))
+	for k := range m.index.Files {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// GetFileMtime returns the modification time for a key.
+func (m *Manager) GetFileMtime(key string) (int64, error) {
+	if err := m.EnsureIndex(); err != nil {
+		return 0, err
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, ok := m.index.Files[key]
+	if !ok {
+		return 0, fmt.Errorf("key not found: %s", key)
+	}
+
+	return entry.Mtime, nil
+}
+
 // GetCategories returns all category names.
 func (m *Manager) GetCategories() []string {
 	if err := m.EnsureIndex(); err != nil {
@@ -287,6 +507,36 @@ func (m *Manager) GetStats() Stats {
 	}
 }
 
+// GetIndexStatus returns index freshness information.
+func (m *Manager) GetIndexStatus() IndexStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	status := IndexStatus{
+		TTLSeconds:    int64(m.ttl.Seconds()),
+		CacheFilePath: m.indexPath,
+	}
+
+	// Check disk cache
+	info, err := os.Stat(m.indexPath)
+	if err == nil {
+		status.IsCached = true
+		status.LastUpdated = info.ModTime()
+		status.AgeSeconds = int64(time.Since(info.ModTime()).Seconds())
+		status.NeedsRefresh = time.Since(info.ModTime()) > m.ttl
+	} else {
+		status.IsCached = false
+		status.NeedsRefresh = true
+	}
+
+	// Get version if index is loaded
+	if m.index != nil {
+		status.Version = m.index.System.Version
+	}
+
+	return status
+}
+
 // loadFromCache attempts to load the index from the local cache.
 func (m *Manager) loadFromCache() bool {
 	// Check if cache exists and is fresh
@@ -316,9 +566,19 @@ func (m *Manager) loadFromCache() bool {
 	return true
 }
 
-// fetchIndex fetches the index from the remote URL.
+// fetchIndex fetches the index from the remote URL with cache-busting headers.
 func (m *Manager) fetchIndex() error {
-	resp, err := http.Get(IndexURL)
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", IndexURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Cache-busting headers to get fresh content
+	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	req.Header.Set("Pragma", "no-cache")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch index: %w", err)
 	}
@@ -354,6 +614,35 @@ func (m *Manager) fetchIndex() error {
 	m.index = &idx
 	m.lastRefresh = time.Now()
 	return nil
+}
+
+// GetStaleKeys returns keys whose cached content is older than the index mtime.
+// This allows smart cache invalidation based on actual file changes.
+func (m *Manager) GetStaleKeys(cachedKeys []string, getCacheMtime func(key string) int64) []string {
+	if err := m.EnsureIndex(); err != nil {
+		return nil
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var stale []string
+	for _, key := range cachedKeys {
+		entry, ok := m.index.Files[key]
+		if !ok {
+			// Key no longer in index, consider stale
+			stale = append(stale, key)
+			continue
+		}
+
+		cacheMtime := getCacheMtime(key)
+		if cacheMtime > 0 && entry.Mtime > cacheMtime {
+			// Index entry is newer than cache
+			stale = append(stale, key)
+		}
+	}
+
+	return stale
 }
 
 // saveToCache saves the index to the local cache.

@@ -7,25 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [1.1.0] - 2025-12-14
 
-- **Package structure redesign** for better platform compatibility:
-  - Standalone packages now use opt-style layout (`p2kb-mcp/bin/p2kb-mcp`)
+### Breaking Changes
+
+- **API Redesign**: Reduced from 11 tools to 6 tools for better Claude usability
+  - Removed: `p2kb_search`, `p2kb_browse`, `p2kb_categories`, `p2kb_batch_get`, `p2kb_info`, `p2kb_stats`, `p2kb_related`, `p2kb_help`, `p2kb_cached`, `p2kb_index_status`
+  - Added: `p2kb_find`, `p2kb_obex_get`, `p2kb_obex_find`
+  - Changed: `p2kb_get` now accepts natural language queries
+  - Changed: `p2kb_version` now includes comprehensive cache/index status
+
+### Added
+
+- **Natural Language Query Support** in `p2kb_get`:
+  - Accept queries like "mov instruction" instead of requiring exact keys
+  - Token-based scoring matches queries to CamelCase keys
+  - Returns suggestions when multiple matches found
+
+- **OBEX (Parallax Object Exchange) Support**:
+  - `p2kb_obex_get`: Fetch object by search term or numeric ID
+  - `p2kb_obex_find`: Browse categories, search objects, filter by author
+  - ~113 community code objects for I2C, SPI, LEDs, motors, etc.
+  - Search term expansion (e.g., "i2c" matches iic, twi, two-wire)
+  - Download URLs and installation instructions included
+
+- **Smart Cache Invalidation**:
+  - Cache-busting headers on index fetch
+  - Mtime-based comparison for KB entries
+  - TTL-based expiration for OBEX objects (24 hours)
+  - `p2kb_refresh` invalidates stale entries based on index timestamps
+
+- **Package Structure Redesign**:
+  - Standalone packages use opt-style layout (`p2kb-mcp/bin/p2kb-mcp`)
   - Container-tools package installs to `/opt/container-tools/p2kb-mcp/`
   - All packages include README.md, CHANGELOG.md, and LICENSE
 
 - **Platform-specific cache locations**:
   - Container-tools: `/opt/container-tools/var/cache/p2kb-mcp/`
-  - Standalone Linux/macOS: `.cache/` directory next to binary (hidden folder)
+  - Standalone Linux/macOS: `.cache/` directory next to binary
   - Windows: `%LOCALAPPDATA%\p2kb-mcp\cache\`
 
-- **New `internal/paths` package** for centralized path resolution
-
-### Added
-
+- New `internal/obex` package for OBEX object management
+- New `internal/paths` package for centralized path resolution
 - Standalone package builds for all 6 platforms
 - `make standalone` and `make packages` build targets
-- Symlink creation in container-tools install (`/opt/container-tools/bin/p2kb-mcp`)
+
+### Changed
+
+- `p2kb_find` replaces `p2kb_search`, `p2kb_browse`, and `p2kb_categories`
+- `p2kb_version` now includes index and cache statistics
+- `p2kb_refresh` now performs smart cache invalidation
+- Improved error messages with helpful hints
+
+### Migration Guide
+
+See [API.md](DOCs/API.md#migration-from-v10x) for migration details from v1.0.x
 
 ## [1.0.0] - 2025-12-12
 
@@ -81,5 +117,6 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/tag/v1.0.0

@@ -172,3 +172,106 @@ func TestBaseContentURL(t *testing.T) {
 		t.Errorf("BaseContentURL = %q, want %q", BaseContentURL, expected)
 	}
 }
+
+func TestGetCachedKeys(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
+	}
+
+	// Add entries to memory
+	m.memory["memkey1"] = cacheEntry{content: "content1"}
+	m.memory["memkey2"] = cacheEntry{content: "content2"}
+
+	// Add files to disk cache
+	cacheDir := filepath.Join(tmpDir, "cache")
+	_ = os.MkdirAll(cacheDir, 0755)
+	_ = os.WriteFile(filepath.Join(cacheDir, "diskkey1.yaml"), []byte("test"), 0644)
+	_ = os.WriteFile(filepath.Join(cacheDir, "memkey1.yaml"), []byte("test"), 0644) // overlap
+
+	keys := m.GetCachedKeys()
+
+	// Should have 3 unique keys: memkey1, memkey2, diskkey1
+	if len(keys) != 3 {
+		t.Errorf("GetCachedKeys() returned %d keys, want 3", len(keys))
+	}
+
+	// Verify all expected keys are present
+	keySet := make(map[string]bool)
+	for _, k := range keys {
+		keySet[k] = true
+	}
+
+	expected := []string{"memkey1", "memkey2", "diskkey1"}
+	for _, k := range expected {
+		if !keySet[k] {
+			t.Errorf("missing key: %s", k)
+		}
+	}
+}
+
+func TestGetStats(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
+	}
+
+	// Add entries to memory
+	m.memory["key1"] = cacheEntry{content: "content1"}
+	m.memory["key2"] = cacheEntry{content: "content2"}
+
+	// Add files to disk cache
+	cacheDir := filepath.Join(tmpDir, "cache")
+	_ = os.MkdirAll(cacheDir, 0755)
+	_ = os.WriteFile(filepath.Join(cacheDir, "diskkey1.yaml"), []byte("test content here"), 0644)
+
+	stats := m.GetStats()
+
+	if stats.MemoryEntries != 2 {
+		t.Errorf("MemoryEntries = %d, want 2", stats.MemoryEntries)
+	}
+	if stats.DiskEntries != 1 {
+		t.Errorf("DiskEntries = %d, want 1", stats.DiskEntries)
+	}
+	if stats.DiskSizeBytes == 0 {
+		t.Error("DiskSizeBytes should be > 0")
+	}
+	if stats.CacheDir != tmpDir {
+		t.Errorf("CacheDir = %q, want %q", stats.CacheDir, tmpDir)
+	}
+}
+
+func TestGetCachedKeysEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
+	}
+
+	keys := m.GetCachedKeys()
+	if len(keys) != 0 {
+		t.Errorf("GetCachedKeys() returned %d keys for empty cache, want 0", len(keys))
+	}
+}
+
+func TestGetStatsEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
+	}
+
+	stats := m.GetStats()
+
+	if stats.MemoryEntries != 0 {
+		t.Errorf("MemoryEntries = %d, want 0", stats.MemoryEntries)
+	}
+	if stats.DiskEntries != 0 {
+		t.Errorf("DiskEntries = %d, want 0", stats.DiskEntries)
+	}
+	if stats.DiskSizeBytes != 0 {
+		t.Errorf("DiskSizeBytes = %d, want 0", stats.DiskSizeBytes)
+	}
+}

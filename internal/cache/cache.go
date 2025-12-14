@@ -158,3 +158,110 @@ func (m *Manager) saveToDisk(key, content string) error {
 	return os.WriteFile(cachePath, []byte(content), 0644)
 }
 
+// CacheStats contains statistics about the cache.
+type CacheStats struct {
+	MemoryEntries int   `json:"memory_entries"`
+	DiskEntries   int   `json:"disk_entries"`
+	DiskSizeBytes int64 `json:"disk_size_bytes"`
+	CacheDir      string `json:"cache_dir"`
+}
+
+// GetCachedKeys returns a list of all cached keys (memory + disk).
+func (m *Manager) GetCachedKeys() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Use a map to deduplicate
+	keySet := make(map[string]struct{})
+
+	// Add memory keys
+	for key := range m.memory {
+		keySet[key] = struct{}{}
+	}
+
+	// Add disk keys
+	cacheDir := filepath.Join(m.cacheDir, "cache")
+	entries, err := os.ReadDir(cacheDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				name := entry.Name()
+				if len(name) > 5 && name[len(name)-5:] == ".yaml" {
+					key := name[:len(name)-5]
+					keySet[key] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// Convert to slice
+	keys := make([]string, 0, len(keySet))
+	for key := range keySet {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+// GetStats returns cache statistics.
+func (m *Manager) GetStats() CacheStats {
+	m.mu.RLock()
+	memoryCount := len(m.memory)
+	m.mu.RUnlock()
+
+	var diskCount int
+	var diskSize int64
+
+	cacheDir := filepath.Join(m.cacheDir, "cache")
+	entries, err := os.ReadDir(cacheDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				name := entry.Name()
+				if len(name) > 5 && name[len(name)-5:] == ".yaml" {
+					diskCount++
+					if info, err := entry.Info(); err == nil {
+						diskSize += info.Size()
+					}
+				}
+			}
+		}
+	}
+
+	return CacheStats{
+		MemoryEntries: memoryCount,
+		DiskEntries:   diskCount,
+		DiskSizeBytes: diskSize,
+		CacheDir:      m.cacheDir,
+	}
+}
+
+// GetMtime returns the cached mtime for a key, or 0 if not cached.
+func (m *Manager) GetMtime(key string) int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if entry, ok := m.memory[key]; ok {
+		return entry.mtime
+	}
+	return 0
+}
+
+// InvalidateKeys removes multiple keys from cache.
+func (m *Manager) InvalidateKeys(keys []string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+	for _, key := range keys {
+		if _, ok := m.memory[key]; ok {
+			delete(m.memory, key)
+			count++
+		}
+		cachePath := filepath.Join(m.cacheDir, "cache", key+".yaml")
+		if err := os.Remove(cachePath); err == nil {
+			count++
+		}
+	}
+	return count
+}
+

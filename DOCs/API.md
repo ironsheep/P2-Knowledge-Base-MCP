@@ -1,50 +1,66 @@
 # P2KB MCP API Reference
 
-This document describes all MCP tools provided by the P2KB MCP server.
+This document describes all MCP tools provided by the P2KB MCP server (v1.1.0+).
 
 ## Overview
 
-P2KB MCP provides 11 tools for accessing the Propeller 2 Knowledge Base:
+P2KB MCP provides 6 tools for accessing the Propeller 2 Knowledge Base and OBEX:
 
 | Tool | Description |
 |------|-------------|
-| `p2kb_get` | Fetch content by key |
-| `p2kb_search` | Search for keys |
-| `p2kb_browse` | List keys in a category |
-| `p2kb_categories` | List all categories |
-| `p2kb_version` | Get server version |
-| `p2kb_batch_get` | Fetch multiple keys |
-| `p2kb_refresh` | Refresh index/cache |
-| `p2kb_info` | Check key existence |
-| `p2kb_stats` | Knowledge base stats |
-| `p2kb_related` | Get related items |
-| `p2kb_help` | Usage information |
+| `p2kb_get` | Fetch content using natural language or exact key |
+| `p2kb_find` | Explore and discover documentation |
+| `p2kb_obex_get` | Get OBEX object by search or ID |
+| `p2kb_obex_find` | Explore OBEX objects |
+| `p2kb_version` | Server version and status |
+| `p2kb_refresh` | Refresh index and invalidate stale cache |
 
 ---
 
-## Core Tools
+## Documentation Tools
 
 ### p2kb_get
 
-Fetch P2 Knowledge Base content by key.
+Fetch P2 Knowledge Base content using natural language or exact key.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `key` | string | Yes | The p2kb key (e.g., `p2kbPasm2Mov`) |
+| `query` | string | Yes | Natural language query or exact key |
 
-**Returns:**
+**Query Examples:**
+
+- `"mov instruction"` - Natural language
+- `"spin2 pinwrite"` - Natural language
+- `"cog memory"` - Natural language
+- `"p2kbPasm2Mov"` - Exact key
+
+**Returns (content found):**
 
 ```json
 {
-  "content": "--- YAML content ---"
+  "type": "content",
+  "key": "p2kbPasm2Mov",
+  "content": "--- YAML content ---",
+  "categories": ["pasm2_data", "pasm2_math"],
+  "related": ["p2kbPasm2Loc", "p2kbPasm2Rdlong"]
 }
 ```
 
-**Errors:**
+**Returns (multiple matches):**
 
-- Key not found: Returns suggestions for similar keys
+```json
+{
+  "type": "suggestions",
+  "query": "mov",
+  "message": "Multiple matches found. Please be more specific or use an exact key.",
+  "suggestions": [
+    {"key": "p2kbPasm2Mov", "score": 0.9, "category": "pasm2_data"},
+    {"key": "p2kbPasm2Movbyts", "score": 0.8, "category": "pasm2_data"}
+  ]
+}
+```
 
 **Example:**
 
@@ -52,31 +68,66 @@ Fetch P2 Knowledge Base content by key.
 {
   "name": "p2kb_get",
   "arguments": {
-    "key": "p2kbPasm2Mov"
+    "query": "mov instruction"
   }
 }
 ```
 
 ---
 
-### p2kb_search
+### p2kb_find
 
-Search for keys matching a term (case-insensitive).
+Explore and discover P2KB documentation.
 
 **Parameters:**
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `term` | string | Yes | - | Search term |
+| `term` | string | No | - | Search term |
+| `category` | string | No | - | Category to browse |
 | `limit` | integer | No | 50 | Max results |
 
-**Returns:**
+**Behavior:**
+
+- **No parameters**: Returns list of all categories with counts
+- **term only**: Searches for matching keys
+- **category only**: Lists all keys in that category
+- **term + category**: Searches within category
+
+**Returns (no parameters - categories):**
 
 ```json
 {
+  "type": "categories",
+  "categories": {
+    "pasm2_branch": 37,
+    "pasm2_math": 45,
+    "spin2_pin": 12
+  },
+  "total_categories": 47,
+  "total_entries": 970
+}
+```
+
+**Returns (with category):**
+
+```json
+{
+  "type": "keys",
+  "category": "pasm2_math",
+  "keys": ["p2kbPasm2Add", "p2kbPasm2Sub", "p2kbPasm2Mul"],
+  "count": 45
+}
+```
+
+**Returns (with term):**
+
+```json
+{
+  "type": "keys",
+  "term": "mov",
   "keys": ["p2kbPasm2Mov", "p2kbPasm2Movbyts"],
-  "count": 2,
-  "term": "mov"
+  "count": 2
 }
 ```
 
@@ -84,45 +135,7 @@ Search for keys matching a term (case-insensitive).
 
 ```json
 {
-  "name": "p2kb_search",
-  "arguments": {
-    "term": "mov",
-    "limit": 10
-  }
-}
-```
-
----
-
-### p2kb_browse
-
-List all keys in a category.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `category` | string | Yes | Category name (e.g., `pasm2_branch`) |
-
-**Returns:**
-
-```json
-{
-  "category": "pasm2_branch",
-  "keys": ["p2kbPasm2Call", "p2kbPasm2Jmp", ...],
-  "count": 37
-}
-```
-
-**Errors:**
-
-- Category not found: Returns list of valid categories
-
-**Example:**
-
-```json
-{
-  "name": "p2kb_browse",
+  "name": "p2kb_find",
   "arguments": {
     "category": "pasm2_math"
   }
@@ -131,67 +144,64 @@ List all keys in a category.
 
 ---
 
-### p2kb_categories
+## OBEX Tools
 
-List all available categories with counts.
+### p2kb_obex_get
 
-**Parameters:** None
-
-**Returns:**
-
-```json
-{
-  "categories": {
-    "pasm2_branch": 37,
-    "pasm2_math": 45,
-    "architecture_core": 8
-  },
-  "total_categories": 47,
-  "total_entries": 970
-}
-```
-
----
-
-### p2kb_version
-
-Get MCP server version.
-
-**Parameters:** None
-
-**Returns:**
-
-```json
-{
-  "mcp_version": "1.0.0"
-}
-```
-
----
-
-## Enhanced Tools
-
-### p2kb_batch_get
-
-Fetch multiple keys in one call.
+Get OBEX (Parallax Object Exchange) object by search term or numeric ID.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `keys` | string[] | Yes | Array of keys to fetch |
+| `query` | string | Yes | Natural language search or numeric object ID |
 
-**Returns:**
+**Query Examples:**
+
+- `"led driver"` - Natural language search
+- `"i2c sensor"` - Natural language search
+- `"2811"` - Numeric object ID
+- `"OB4047"` - Object ID with prefix (stripped automatically)
+
+**Returns (object found):**
 
 ```json
 {
-  "results": {
-    "p2kbPasm2Mov": { "content": "..." },
-    "p2kbPasm2Add": { "content": "..." },
-    "p2kbInvalid": { "error": "Key not found" }
+  "type": "obex_object",
+  "object_id": "2811",
+  "title": "Park transformation",
+  "author": "ManAtWork",
+  "category": "motors",
+  "description": "CORDIC-based park transformation for motor control",
+  "languages": ["SPIN2", "PASM2"],
+  "tags": ["motor", "cordic", "servo"],
+  "download_url": "https://obex.parallax.com/...",
+  "obex_page": "https://obex.parallax.com/obex/park-transformation/",
+  "download_instructions": {
+    "suggested_directory": "OBEX/park-transformation",
+    "filename": "OB2811.zip",
+    "command": "curl -L -o OB2811.zip 'https://obex.parallax.com/...'"
   },
-  "success": 2,
-  "errors": 1
+  "metadata": {
+    "version": "",
+    "file_size": "16 B",
+    "quality": 5,
+    "created_date": "2020-05-09 12:00:00"
+  }
+}
+```
+
+**Returns (multiple matches):**
+
+```json
+{
+  "type": "suggestions",
+  "query": "led",
+  "message": "Multiple OBEX objects found. Specify an object_id or refine your search.",
+  "suggestions": [
+    {"object_id": "4047", "title": "WS2812B LED Driver", "author": "...", "category": "drivers"},
+    {"object_id": "5274", "title": "NeoPixel Controller", "author": "...", "category": "drivers"}
+  ]
 }
 ```
 
@@ -199,9 +209,107 @@ Fetch multiple keys in one call.
 
 ```json
 {
-  "name": "p2kb_batch_get",
+  "name": "p2kb_obex_get",
   "arguments": {
-    "keys": ["p2kbPasm2Mov", "p2kbPasm2Add", "p2kbPasm2Sub"]
+    "query": "2811"
+  }
+}
+```
+
+---
+
+### p2kb_obex_find
+
+Explore OBEX objects by category, author, or search term.
+
+**Parameters:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `term` | string | No | - | Search term |
+| `category` | string | No | - | Category filter (drivers, misc, display, demos, audio, motors, communication, sensors, tools) |
+| `author` | string | No | - | Author name filter |
+| `limit` | integer | No | 20 | Max results |
+
+**Behavior:**
+
+- **No parameters**: Returns overview with categories and top authors
+- **term**: Searches all objects
+- **category**: Lists objects in category
+- **author**: Lists objects by author
+
+**Returns (no parameters - overview):**
+
+```json
+{
+  "type": "overview",
+  "categories": {
+    "drivers": 49,
+    "misc": 34,
+    "display": 7
+  },
+  "total_objects": 113,
+  "top_authors": [
+    {"name": "Jon McPhalen", "object_count": 44},
+    {"name": "Stephen M Moraco", "object_count": 15}
+  ]
+}
+```
+
+**Returns (with category or term):**
+
+```json
+{
+  "type": "objects",
+  "category": "drivers",
+  "objects": [
+    {"object_id": "2811", "title": "...", "author": "...", "description": "..."},
+    {"object_id": "4047", "title": "...", "author": "...", "description": "..."}
+  ],
+  "count": 49
+}
+```
+
+**Example:**
+
+```json
+{
+  "name": "p2kb_obex_find",
+  "arguments": {
+    "category": "drivers",
+    "limit": 10
+  }
+}
+```
+
+---
+
+## System Tools
+
+### p2kb_version
+
+Get MCP server version and status information.
+
+**Parameters:** None
+
+**Returns:**
+
+```json
+{
+  "mcp_version": "0.3.0",
+  "index_version": "3.2.0",
+  "index": {
+    "total_entries": 970,
+    "total_categories": 47,
+    "is_cached": true,
+    "age_seconds": 3600,
+    "needs_refresh": false
+  },
+  "obex": {
+    "total_objects": 113,
+    "cached_memory": 10,
+    "cached_disk": 50,
+    "stale_cache_entries": 0
   }
 }
 ```
@@ -210,109 +318,34 @@ Fetch multiple keys in one call.
 
 ### p2kb_refresh
 
-Force refresh of index and optionally invalidate cache.
+Force refresh of index and invalidate stale cache entries based on index timestamps.
 
 **Parameters:**
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `invalidate_cache` | boolean | No | false | Clear all cached YAMLs |
-| `prefetch_common` | boolean | No | true | Prefetch common keys after refresh |
+| `include_obex` | boolean | No | false | Also refresh OBEX index |
 
 **Returns:**
 
 ```json
 {
   "refreshed": true,
-  "version": "3.2.1",
-  "total_entries": 970
-}
-```
-
----
-
-### p2kb_info
-
-Check if a key exists and what categories it belongs to.
-
-**Parameters:**
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `key` | string | Yes | The p2kb key |
-
-**Returns:**
-
-```json
-{
-  "key": "p2kbPasm2Mov",
-  "exists": true,
-  "categories": ["pasm2_data", "pasm2_math"]
-}
-```
-
----
-
-### p2kb_stats
-
-Get knowledge base statistics.
-
-**Parameters:** None
-
-**Returns:**
-
-```json
-{
-  "version": "3.2.0",
+  "stale_keys_found": 5,
+  "cache_entries_invalidated": 5,
+  "index_version": "3.2.1",
   "total_entries": 970,
-  "total_categories": 47
+  "obex_refreshed": true
 }
 ```
 
----
-
-### p2kb_related
-
-Get related instructions for a key.
-
-**Parameters:**
-
-| Name | Type | Required | Default | Description |
-|------|------|----------|---------|-------------|
-| `key` | string | Yes | - | The p2kb key |
-| `fetch_content` | boolean | No | false | Also fetch related content |
-
-**Returns:**
+**Example:**
 
 ```json
 {
-  "key": "p2kbPasm2Mov",
-  "related": ["p2kbPasm2Loc", "p2kbPasm2Rdlong"],
-  "content": {
-    "p2kbPasm2Loc": "..."
-  }
-}
-```
-
----
-
-### p2kb_help
-
-Return usage information.
-
-**Parameters:** None
-
-**Returns:**
-
-```json
-{
-  "tools": ["p2kb_get", "p2kb_search", ...],
-  "key_prefixes": {
-    "p2kbPasm2*": "PASM2 assembly instructions",
-    "p2kbSpin2*": "Spin2 methods",
-    "p2kbArch*": "Architecture documentation",
-    "p2kbGuide*": "Guides and quick references",
-    "p2kbHw*": "Hardware specifications"
+  "name": "p2kb_refresh",
+  "arguments": {
+    "include_obex": true
   }
 }
 ```
@@ -331,6 +364,41 @@ Return usage information.
 
 ---
 
+## Natural Language Query Matching
+
+The `p2kb_get` tool supports natural language queries using token matching:
+
+1. **Query tokenization**: "MOV instruction" → ["mov", "instruction"]
+2. **Key tokenization**: `p2kbPasm2Mov` → ["p2kb", "pasm2", "mov"]
+3. **Scoring**: Tokens are matched and scored
+4. **High-confidence match**: Returns content directly
+5. **Ambiguous match**: Returns suggestions
+
+### Examples
+
+| Query | Matches |
+|-------|---------|
+| `mov` | p2kbPasm2Mov, p2kbPasm2Movbyts |
+| `pasm2 add` | p2kbPasm2Add |
+| `spin2 pinwrite` | p2kbSpin2Pinwrite |
+| `cog memory` | p2kbArchCogMemory |
+
+---
+
+## OBEX Search Term Expansion
+
+The OBEX tools automatically expand search terms to related concepts:
+
+| Term | Expanded To |
+|------|-------------|
+| `i2c` | i2c, iic, twi, two-wire |
+| `led` | led, pixel, ws2812, rgb, neopixel, strip |
+| `motor` | motor, servo, stepper, pwm, drive |
+| `sensor` | sensor, detector, measure, monitor |
+| `display` | display, lcd, oled, screen, graphics |
+
+---
+
 ## Error Handling
 
 ### JSON-RPC Error Codes
@@ -344,18 +412,16 @@ Return usage information.
 | -32603 | Internal error |
 | -32000 | Tool execution failure |
 
-### Key Not Found
-
-When a key lookup fails:
+### Error Response Example
 
 ```json
 {
   "error": {
     "code": -32000,
-    "message": "Key 'p2kbPasm2Mvo' not found",
+    "message": "No matches found",
     "data": {
-      "suggestions": ["p2kbPasm2Mov", "p2kbPasm2Movbyts"],
-      "hint": "Use p2kb_search to find valid keys"
+      "query": "xyz nonexistent",
+      "hint": "Try using p2kb_find to explore available documentation"
     }
   }
 }
@@ -382,7 +448,7 @@ Response:
   "result": {
     "protocolVersion": "2024-11-05",
     "capabilities": {"tools": {}},
-    "serverInfo": {"name": "p2kb-mcp", "version": "1.0.0"}
+    "serverInfo": {"name": "p2kb-mcp", "version": "0.3.0"}
   }
 }
 ```
@@ -404,7 +470,7 @@ Request:
   "method": "tools/call",
   "params": {
     "name": "p2kb_get",
-    "arguments": {"key": "p2kbPasm2Mov"}
+    "arguments": {"query": "mov instruction"}
   }
 }
 ```
@@ -414,8 +480,25 @@ Request:
 ## Caching Behavior
 
 - **Index TTL**: 24 hours (configurable via `P2KB_INDEX_TTL`)
-- **Content cache**: Persistent, invalidated when index mtime changes
-- **Cache location**: `~/.p2kb-mcp/` (configurable via `P2KB_CACHE_DIR`)
+- **Content cache**: Persistent, invalidated based on index mtime comparison
+- **OBEX cache**: TTL-based, 24 hours per object
+- **Cache location**: Platform-specific (see below)
+
+### Cache Locations
+
+| Platform | Location |
+|----------|----------|
+| Linux | `~/.cache/p2kb-mcp/` |
+| macOS | `~/Library/Caches/p2kb-mcp/` |
+| Windows | `%LocalAppData%\p2kb-mcp\` |
+
+### Smart Cache Invalidation
+
+When `p2kb_refresh` is called:
+1. Fresh index is fetched with cache-busting headers
+2. Index file timestamps (`mtime`) are compared with cached content
+3. Stale entries (older than index) are automatically invalidated
+4. Next access will fetch fresh content
 
 ### Content Filtering
 
@@ -426,3 +509,25 @@ The following metadata fields are removed from cached content to save tokens:
 - `documentation_source`
 - `documentation_level`
 - `manual_extraction_date`
+
+---
+
+## Migration from v1.0.x
+
+The following tools were removed and replaced:
+
+| Old Tool | Replacement |
+|----------|-------------|
+| `p2kb_search` | `p2kb_find(term="...")` |
+| `p2kb_browse` | `p2kb_find(category="...")` |
+| `p2kb_categories` | `p2kb_find()` (no params) |
+| `p2kb_batch_get` | Multiple `p2kb_get` calls |
+| `p2kb_info` | `p2kb_get` returns categories |
+| `p2kb_stats` | `p2kb_version` |
+| `p2kb_related` | `p2kb_get` returns related items |
+| `p2kb_help` | This documentation |
+| `p2kb_cached` | `p2kb_version` shows cache stats |
+| `p2kb_index_status` | `p2kb_version` shows index status |
+| `p2kb_obex_search` | `p2kb_obex_find(term="...")` |
+| `p2kb_obex_browse` | `p2kb_obex_find(category="...")` |
+| `p2kb_obex_authors` | `p2kb_obex_find()` shows top authors |

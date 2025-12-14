@@ -3,18 +3,18 @@
 [![CI](https://github.com/ironsheep/P2-Knowledge-Base-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/ironsheep/P2-Knowledge-Base-MCP/actions/workflows/ci.yml)
 [![Release](https://github.com/ironsheep/P2-Knowledge-Base-MCP/actions/workflows/release.yml/badge.svg)](https://github.com/ironsheep/P2-Knowledge-Base-MCP/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Coverage: 54.8%](https://img.shields.io/badge/Coverage-54.8%25-yellow.svg)](DOCs/TESTING.md)
 
-MCP (Model Context Protocol) server providing Claude AI with structured access to the [Propeller 2 Knowledge Base](https://github.com/ironsheep/P2-Knowledge-Base).
+MCP (Model Context Protocol) server providing Claude AI with structured access to the [Propeller 2 Knowledge Base](https://github.com/ironsheep/P2-Knowledge-Base) and [OBEX (Parallax Object Exchange)](https://obex.parallax.com/).
 
 ## What It Does
 
-Gives Claude direct access to comprehensive Propeller 2 documentation:
+Gives Claude direct access to comprehensive Propeller 2 documentation and community code:
 
 - **PASM2 Instructions** - Assembly language reference with syntax, encoding, and examples
 - **Spin2 Methods** - High-level language built-in methods
 - **Architecture** - COG, HUB, Smart Pins, and hardware documentation
 - **Guides** - Quick reference and getting started guides
+- **OBEX Objects** - ~113 community code objects for I2C, SPI, LEDs, motors, and more
 
 ## Quick Start
 
@@ -64,21 +64,52 @@ Add to your MCP configuration:
 
 See [INSTALL.md](INSTALL.md) for detailed installation instructions.
 
-## Available Tools
+## Available Tools (v1.1.0+)
+
+The API is intentionally minimal (6 tools) to reduce cognitive load for Claude.
+
+### Documentation Access
 
 | Tool | Description |
 |------|-------------|
-| `p2kb_get` | Fetch content by key (e.g., `p2kbPasm2Mov`) |
-| `p2kb_search` | Search for keys matching a term |
-| `p2kb_browse` | List all keys in a category |
-| `p2kb_categories` | List all available categories |
-| `p2kb_batch_get` | Fetch multiple keys in one call |
-| `p2kb_related` | Get related instructions for a key |
-| `p2kb_stats` | Knowledge base statistics |
-| `p2kb_refresh` | Force refresh of index and cache |
-| `p2kb_info` | Check if a key exists |
-| `p2kb_version` | Get MCP server version |
-| `p2kb_help` | Usage information |
+| `p2kb_get` | Fetch content using natural language ("mov instruction") or exact key (`p2kbPasm2Mov`). Returns content with related items. |
+| `p2kb_find` | Explore documentation: list categories, search by term, or browse a category. |
+
+### OBEX (Community Code)
+
+| Tool | Description |
+|------|-------------|
+| `p2kb_obex_get` | Get OBEX object by search ("i2c sensor") or ID ("2811"). Returns download URL and instructions. |
+| `p2kb_obex_find` | Explore OBEX: list categories, search objects, or browse by category/author. |
+
+### System
+
+| Tool | Description |
+|------|-------------|
+| `p2kb_version` | Server version and index/cache status (for debugging). |
+| `p2kb_refresh` | Force refresh of index and invalidate stale cache entries. |
+
+## Usage Examples
+
+### Natural Language Queries
+
+Claude can use natural language to find documentation:
+
+```
+p2kb_get("mov instruction")     → Returns PASM2 MOV documentation
+p2kb_get("spin2 pinwrite")      → Returns Spin2 pinwrite method
+p2kb_get("cog memory")          → Returns COG architecture docs
+```
+
+### OBEX Code Objects
+
+Find and download community code:
+
+```
+p2kb_obex_get("led driver")     → Finds WS2812B, NeoPixel objects
+p2kb_obex_get("2811")           → Gets specific object by ID
+p2kb_obex_find(category="drivers") → Lists all driver objects
+```
 
 ## Key Prefixes
 
@@ -114,6 +145,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Related
 
 - [P2 Knowledge Base](https://github.com/ironsheep/P2-Knowledge-Base) - Documentation source
+- [OBEX](https://obex.parallax.com/) - Parallax Object Exchange
 - [Propeller 2](https://www.parallax.com/propeller-2/) - The microcontroller
 - [Model Context Protocol](https://modelcontextprotocol.io/) - MCP specification
 

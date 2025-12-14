@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+// Test helper functions
+
 func TestExtractRelatedInstructions(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -71,6 +73,50 @@ related_instructions:
 	}
 }
 
+func TestIsNumericID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"2811", true},
+		{"OB2811", true},
+		{"ob4047", true},
+		{"123", true},
+		{"led driver", false},
+		{"i2c", false},
+		{"", false},
+		{"12abc", false},
+	}
+
+	for _, tt := range tests {
+		result := isNumericID(tt.input)
+		if result != tt.expected {
+			t.Errorf("isNumericID(%q) = %v, want %v", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestGenerateSlug(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Park transformation", "park-transformation"},
+		{"WS2812B LED Driver", "ws2812b-led-driver"},
+		{"I2C OLED Display (128x64)", "i2c-oled-display-128x64"},
+		{"  Spaces & Symbols! @#$  ", "spaces-symbols"},
+		{"Simple", "simple"},
+		{"CamelCase", "camelcase"},
+	}
+
+	for _, tt := range tests {
+		result := generateSlug(tt.input)
+		if result != tt.expected {
+			t.Errorf("generateSlug(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
 func TestToJSON(t *testing.T) {
 	input := map[string]interface{}{
 		"key":   "value",
@@ -89,92 +135,7 @@ func TestToJSON(t *testing.T) {
 	}
 }
 
-func TestHandleVersion(t *testing.T) {
-	srv := New("1.2.3")
-	resp := srv.handleVersion(1)
-
-	if resp.Error != nil {
-		t.Fatalf("handleVersion returned error: %v", resp.Error)
-	}
-
-	result, ok := resp.Result.(map[string]interface{})
-	if !ok {
-		t.Fatal("result is not a map")
-	}
-
-	content, ok := result["content"].([]map[string]interface{})
-	if !ok {
-		t.Fatal("content is not a []map")
-	}
-
-	if len(content) != 1 {
-		t.Fatalf("expected 1 content item, got %d", len(content))
-	}
-
-	text, ok := content[0]["text"].(string)
-	if !ok {
-		t.Fatal("text is not a string")
-	}
-
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(text), &data); err != nil {
-		t.Fatalf("failed to parse text as JSON: %v", err)
-	}
-
-	if data["mcp_version"] != "1.2.3" {
-		t.Errorf("mcp_version = %v, want 1.2.3", data["mcp_version"])
-	}
-}
-
-func TestHandleHelp(t *testing.T) {
-	srv := New("1.0.0")
-	resp := srv.handleHelp(1)
-
-	if resp.Error != nil {
-		t.Fatalf("handleHelp returned error: %v", resp.Error)
-	}
-
-	result, ok := resp.Result.(map[string]interface{})
-	if !ok {
-		t.Fatal("result is not a map")
-	}
-
-	content, ok := result["content"].([]map[string]interface{})
-	if !ok {
-		t.Fatal("content is not a []map")
-	}
-
-	text, ok := content[0]["text"].(string)
-	if !ok {
-		t.Fatal("text is not a string")
-	}
-
-	var data map[string]interface{}
-	if err := json.Unmarshal([]byte(text), &data); err != nil {
-		t.Fatalf("failed to parse text as JSON: %v", err)
-	}
-
-	tools, ok := data["tools"].([]interface{})
-	if !ok {
-		t.Fatal("tools is not an array")
-	}
-
-	if len(tools) != 11 {
-		t.Errorf("got %d tools, want 11", len(tools))
-	}
-
-	prefixes, ok := data["key_prefixes"].(map[string]interface{})
-	if !ok {
-		t.Fatal("key_prefixes is not a map")
-	}
-
-	expectedPrefixes := []string{"p2kbPasm2*", "p2kbSpin2*", "p2kbArch*", "p2kbGuide*", "p2kbHw*"}
-	for _, p := range expectedPrefixes {
-		if _, exists := prefixes[p]; !exists {
-			t.Errorf("missing prefix: %s", p)
-		}
-	}
-}
+// Test response helpers
 
 func TestSuccessResponse(t *testing.T) {
 	srv := New("1.0.0")
@@ -218,6 +179,331 @@ func TestErrorResponse(t *testing.T) {
 	}
 }
 
+// Test p2kb_version
+
+func TestHandleVersion(t *testing.T) {
+	srv := New("1.2.3")
+	resp := srv.handleVersion(1)
+
+	if resp.Error != nil {
+		t.Fatalf("handleVersion returned error: %v", resp.Error)
+	}
+
+	result, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatal("result is not a map")
+	}
+
+	content, ok := result["content"].([]map[string]interface{})
+	if !ok {
+		t.Fatal("content is not a []map")
+	}
+
+	if len(content) != 1 {
+		t.Fatalf("expected 1 content item, got %d", len(content))
+	}
+
+	text, ok := content[0]["text"].(string)
+	if !ok {
+		t.Fatal("text is not a string")
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("failed to parse text as JSON: %v", err)
+	}
+
+	if data["mcp_version"] != "1.2.3" {
+		t.Errorf("mcp_version = %v, want 1.2.3", data["mcp_version"])
+	}
+
+	// Check for index and obex sections
+	if _, ok := data["index"]; !ok {
+		t.Error("missing index field")
+	}
+	if _, ok := data["obex"]; !ok {
+		t.Error("missing obex field")
+	}
+}
+
+// Test p2kb_get
+
+func TestHandleGetMissingQuery(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_get",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing query")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleGetInvalidArgs(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_get",
+		"arguments": "not an object",
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for invalid arguments")
+	}
+}
+
+// Test p2kb_find
+
+func TestHandleFindNoParams(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_find",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Should return categories list, not an error
+	// (may fail if index not available, but structure should be correct)
+	if resp.Error != nil {
+		// This is acceptable if index is not available
+		t.Log("handleFind returned error (expected if no index):", resp.Error.Message)
+	}
+}
+
+func TestHandleFindWithTerm(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_find",
+		"arguments": map[string]interface{}{
+			"term": "mov",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Should search for keys containing "mov"
+	if resp.Error != nil {
+		t.Log("handleFind with term returned error (expected if no index):", resp.Error.Message)
+	}
+}
+
+// Test p2kb_obex_get
+
+func TestHandleOBEXGetMissingQuery(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_obex_get",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing query")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleOBEXGetWithNumericID(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_get",
+		"arguments": map[string]interface{}{
+			"query": "2811",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// May fail due to network, but tests the path
+	if resp.Error != nil {
+		t.Log("handleOBEXGet with ID returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+func TestHandleOBEXGetWithSearchTerm(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_get",
+		"arguments": map[string]interface{}{
+			"query": "led driver",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// May fail due to network, but tests the path
+	if resp.Error != nil {
+		t.Log("handleOBEXGet with search returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+// Test p2kb_obex_find
+
+func TestHandleOBEXFindNoParams(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_obex_find",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Should return overview with categories
+	if resp.Error != nil {
+		t.Log("handleOBEXFind returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+func TestHandleOBEXFindWithCategory(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_find",
+		"arguments": map[string]interface{}{
+			"category": "drivers",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error != nil {
+		t.Log("handleOBEXFind with category returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+func TestHandleOBEXFindWithAuthor(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_find",
+		"arguments": map[string]interface{}{
+			"author": "Jon",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error != nil {
+		t.Log("handleOBEXFind with author returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+// Test p2kb_refresh
+
+func TestHandleRefresh(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_refresh",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// May fail due to network
+	if resp.Error != nil {
+		t.Log("handleRefresh returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+func TestHandleRefreshWithOBEX(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_refresh",
+		"arguments": map[string]interface{}{
+			"include_obex": true,
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error != nil {
+		t.Log("handleRefresh with OBEX returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+// Test unknown tool
+
 func TestHandleToolsCallUnknownTool(t *testing.T) {
 	srv := New("1.0.0")
 	params, _ := json.Marshal(map[string]interface{}{
@@ -259,161 +545,45 @@ func TestHandleToolsCallInvalidParams(t *testing.T) {
 	}
 }
 
-func TestHandleGetMissingKey(t *testing.T) {
+// Test old API tools return errors (they've been removed)
+
+func TestRemovedToolsReturnError(t *testing.T) {
 	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_get",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
+	removedTools := []string{
+		"p2kb_search",
+		"p2kb_browse",
+		"p2kb_categories",
+		"p2kb_batch_get",
+		"p2kb_info",
+		"p2kb_stats",
+		"p2kb_related",
+		"p2kb_help",
+		"p2kb_cached",
+		"p2kb_index_status",
+		"p2kb_obex_search",
+		"p2kb_obex_browse",
+		"p2kb_obex_authors",
 	}
 
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for missing key")
-	}
-	if resp.Error.Code != -32602 {
-		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	for _, tool := range removedTools {
+		params, _ := json.Marshal(map[string]interface{}{
+			"name":      tool,
+			"arguments": map[string]interface{}{},
+		})
+
+		req := &MCPRequest{
+			JSONRPC: "2.0",
+			ID:      1,
+			Method:  "tools/call",
+			Params:  params,
+		}
+
+		resp := srv.handleRequest(req)
+		if resp.Error == nil {
+			t.Errorf("expected error for removed tool %s", tool)
+		}
+		if resp.Error.Code != -32601 {
+			t.Errorf("%s: Error.Code = %d, want -32601", tool, resp.Error.Code)
+		}
 	}
 }
-
-func TestHandleGetInvalidArgs(t *testing.T) {
-	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_get",
-		"arguments": "not an object",
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for invalid arguments")
-	}
-}
-
-func TestHandleSearchMissingTerm(t *testing.T) {
-	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_search",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for missing term")
-	}
-	if resp.Error.Code != -32602 {
-		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
-	}
-}
-
-func TestHandleBrowseMissingCategory(t *testing.T) {
-	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_browse",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for missing category")
-	}
-	if resp.Error.Code != -32602 {
-		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
-	}
-}
-
-func TestHandleInfoMissingKey(t *testing.T) {
-	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_info",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for missing key")
-	}
-	if resp.Error.Code != -32602 {
-		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
-	}
-}
-
-func TestHandleRelatedMissingKey(t *testing.T) {
-	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_related",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for missing key")
-	}
-	if resp.Error.Code != -32602 {
-		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
-	}
-}
-
-func TestHandleBatchGetMissingKeys(t *testing.T) {
-	srv := New("1.0.0")
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_batch_get",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error == nil {
-		t.Error("expected error for missing keys")
-	}
-	if resp.Error.Code != -32602 {
-		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
-	}
-}
-
