@@ -52,7 +52,7 @@ jobs:
       - name: Upload Linux AMD64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-linux-amd64
+          name: binary-linux-amd64-${{ github.ref_name }}
           path: p2kb-mcp-v*-linux-amd64
           retention-days: 1
 
@@ -94,7 +94,7 @@ jobs:
       - name: Upload Linux ARM64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-linux-arm64
+          name: binary-linux-arm64-${{ github.ref_name }}
           path: p2kb-mcp-v*-linux-arm64
           retention-days: 1
 
@@ -141,7 +141,7 @@ jobs:
       - name: Upload macOS AMD64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-darwin-amd64
+          name: binary-darwin-amd64-${{ github.ref_name }}
           path: p2kb-mcp-v*-darwin-amd64
           retention-days: 1
 
@@ -188,7 +188,7 @@ jobs:
       - name: Upload macOS ARM64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-darwin-arm64
+          name: binary-darwin-arm64-${{ github.ref_name }}
           path: p2kb-mcp-v*-darwin-arm64
           retention-days: 1
 
@@ -244,7 +244,7 @@ jobs:
       - name: Upload Windows AMD64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-windows-amd64
+          name: binary-windows-amd64-${{ github.ref_name }}
           path: p2kb-mcp-v*-windows-amd64.exe
           retention-days: 1
 
@@ -294,7 +294,7 @@ jobs:
       - name: Upload Windows ARM64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-windows-arm64
+          name: binary-windows-arm64-${{ github.ref_name }}
           path: p2kb-mcp-v*-windows-arm64.exe
           retention-days: 1
 
@@ -321,7 +321,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: binaries/
-          pattern: binary-*
+          pattern: binary-*-${{ github.ref_name }}
           merge-multiple: true
 
       - name: List downloaded binaries
@@ -528,7 +528,7 @@ jobs:
       - name: Upload container-tools package
         uses: actions/upload-artifact@v4
         with:
-          name: container-tools-package
+          name: container-tools-package-${{ github.ref_name }}
           path: p2kb-mcp-v*-container-tools.tar.gz
           retention-days: 1
 
@@ -555,7 +555,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: binaries/
-          pattern: binary-*
+          pattern: binary-*-${{ github.ref_name }}
           merge-multiple: true
 
       - name: Create standalone packages
@@ -605,7 +605,7 @@ jobs:
       - name: Upload standalone packages
         uses: actions/upload-artifact@v4
         with:
-          name: standalone-packages
+          name: standalone-packages-${{ github.ref_name }}
           path: |
             p2kb-mcp-v*.tar.gz
             p2kb-mcp-v*.zip
@@ -622,19 +622,19 @@ jobs:
       - name: Download darwin-amd64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-darwin-amd64
+          name: binary-darwin-amd64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download darwin-arm64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-darwin-arm64
+          name: binary-darwin-arm64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download container-tools package
         uses: actions/download-artifact@v4
         with:
-          name: container-tools-package
+          name: container-tools-package-${{ github.ref_name }}
           path: package/
 
       - name: Import signing certificate
@@ -699,19 +699,19 @@ jobs:
       - name: Upload signed darwin-amd64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-darwin-amd64-signed
+          name: binary-darwin-amd64-signed-${{ github.ref_name }}
           path: binaries/*darwin-amd64*
 
       - name: Upload signed darwin-arm64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-darwin-arm64-signed
+          name: binary-darwin-arm64-signed-${{ github.ref_name }}
           path: binaries/*darwin-arm64*
 
       - name: Upload signed container-tools package
         uses: actions/upload-artifact@v4
         with:
-          name: container-tools-package-signed
+          name: container-tools-package-signed-${{ github.ref_name }}
           path: package/*.tar.gz
 
   # Create GitHub Release
@@ -731,70 +731,70 @@ jobs:
       - name: Download linux-amd64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-linux-amd64
+          name: binary-linux-amd64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download linux-arm64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-linux-arm64
+          name: binary-linux-arm64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download darwin-amd64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-darwin-amd64
+          name: binary-darwin-amd64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download darwin-arm64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-darwin-arm64
+          name: binary-darwin-arm64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download windows-amd64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-windows-amd64
+          name: binary-windows-amd64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download windows-arm64 binary
         uses: actions/download-artifact@v4
         with:
-          name: binary-windows-arm64
+          name: binary-windows-arm64-${{ github.ref_name }}
           path: binaries/
 
       - name: Download container-tools package
         uses: actions/download-artifact@v4
         with:
-          name: container-tools-package
+          name: container-tools-package-${{ github.ref_name }}
           path: packages/
 
       - name: Download standalone packages
         uses: actions/download-artifact@v4
         with:
-          name: standalone-packages
+          name: standalone-packages-${{ github.ref_name }}
           path: standalone/
 
       - name: Download signed darwin-amd64 binary (if available)
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: binary-darwin-amd64-signed
+          name: binary-darwin-amd64-signed-${{ github.ref_name }}
           path: binaries-signed/
 
       - name: Download signed darwin-arm64 binary (if available)
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: binary-darwin-arm64-signed
+          name: binary-darwin-arm64-signed-${{ github.ref_name }}
           path: binaries-signed/
 
       - name: Download signed container-tools package (if available)
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: container-tools-package-signed
+          name: container-tools-package-signed-${{ github.ref_name }}
           path: packages-signed/
 
       - name: Use signed artifacts if available
