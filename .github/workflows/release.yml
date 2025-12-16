@@ -333,7 +333,7 @@ jobs:
           path: p2kb-mcp-v*-windows-arm64.exe
           retention-days: 1
 
-  # Assemble container-tools package
+  # Assemble container-tools package using build script
   assemble-container-tools:
     name: Assemble Container Tools Package
     runs-on: ubuntu-latest
@@ -348,217 +348,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
       - name: Get version
         id: version
         run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
 
-      - name: Download all binaries
-        uses: actions/download-artifact@v4
-        with:
-          path: binaries/
-          pattern: binary-*-${{ github.ref_name }}
-          merge-multiple: true
+      - name: Build container-tools package using repo script
+        run: |
+          # Run the build script which creates the full package with:
+          # - Universal launcher with symlink resolution
+          # - Full installer with --target, --uninstall, --help
+          # - hooks-dispatcher.sh and hooks.d scripts
+          # - Skip-if-identical optimization
+          # - Rollback support
+          ./scripts/build-container-tools.sh
 
-      - name: List downloaded binaries
-        run: ls -la binaries/
-
-      - name: Create container-tools package structure
+      - name: Copy package to workspace root
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          MCP_NAME="p2kb-mcp"
-          PACKAGE_DIR="container-tools-package/${MCP_NAME}"
+          cp "builds/container-tools/p2kb-mcp-v${VERSION}-container-tools.tar.gz" .
 
-          # Create directory structure
-          mkdir -p "${PACKAGE_DIR}/bin/platforms"
-
-          # Copy all platform binaries
-          cp binaries/* "${PACKAGE_DIR}/bin/platforms/"
-          chmod +x "${PACKAGE_DIR}/bin/platforms"/*
-
-          # Copy documentation from repo
-          cp README.md "${PACKAGE_DIR}/"
-          cp CHANGELOG.md "${PACKAGE_DIR}/"
-          cp LICENSE "${PACKAGE_DIR}/"
-
-      - name: Create universal launcher
+      - name: Verify package contents
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          MCP_NAME="p2kb-mcp"
-          PACKAGE_DIR="container-tools-package/${MCP_NAME}"
-
-          cat > "${PACKAGE_DIR}/bin/${MCP_NAME}" << 'LAUNCHER'
-          #!/usr/bin/env bash
-          set -e
-          LAUNCHER_VERSION="__VERSION__"
-          BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          PLATFORMS_DIR="${BIN_DIR}/platforms"
-          MCP_NAME="p2kb-mcp"
-
-          is_container() {
-              [ -f /.dockerenv ] && return 0
-              [ -n "${CONTAINER}" ] && return 0
-              [ -f /proc/1/cgroup ] && grep -qE 'docker|containerd|podman|kubernetes' /proc/1/cgroup 2>/dev/null && return 0
-              return 1
-          }
-
-          detect_arch() {
-              case "$(uname -m)" in
-                  x86_64|amd64) echo "amd64" ;;
-                  aarch64|arm64) echo "arm64" ;;
-                  *) echo "unknown" ;;
-              esac
-          }
-
-          detect_os() {
-              case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
-                  darwin) echo "darwin" ;;
-                  linux) echo "linux" ;;
-                  mingw*|msys*|cygwin*) echo "windows" ;;
-                  *) echo "unknown" ;;
-              esac
-          }
-
-          select_binary() {
-              local os=$(detect_os)
-              local arch=$(detect_arch)
-              local suffix=""
-              is_container && os="linux"
-              [ "$os" = "windows" ] && suffix=".exe"
-              echo "${PLATFORMS_DIR}/${MCP_NAME}-v${LAUNCHER_VERSION}-${os}-${arch}${suffix}"
-          }
-
-          exec "$(select_binary)" "$@"
-          LAUNCHER
-
-          # Strip leading whitespace from heredoc and replace version
-          sed -i 's/^          //' "${PACKAGE_DIR}/bin/${MCP_NAME}"
-          sed -i "s/__VERSION__/${VERSION}/g" "${PACKAGE_DIR}/bin/${MCP_NAME}"
-          chmod +x "${PACKAGE_DIR}/bin/${MCP_NAME}"
-
-      - name: Create install script
-        run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          MCP_NAME="p2kb-mcp"
-          PACKAGE_DIR="container-tools-package/${MCP_NAME}"
-
-          cat > "${PACKAGE_DIR}/install.sh" << 'INSTALL'
-          #!/bin/bash
-          set -e
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          MCP_NAME="p2kb-mcp"
-          INSTALL_ROOT="/opt/container-tools"
-
-          echo "Installing ${MCP_NAME} to ${INSTALL_ROOT}..."
-          echo ""
-
-          if [ "$EUID" -ne 0 ] && [ ! -w "$INSTALL_ROOT" ] 2>/dev/null; then
-              echo "This script requires sudo to install to ${INSTALL_ROOT}"
-              exec sudo "$0" "$@"
-          fi
-
-          # Create container-tools directory structure
-          mkdir -p "${INSTALL_ROOT}/bin"
-          mkdir -p "${INSTALL_ROOT}/etc"
-          mkdir -p "${INSTALL_ROOT}/var/cache/${MCP_NAME}"
-
-          # Backup existing installation
-          if [ -d "${INSTALL_ROOT}/${MCP_NAME}" ]; then
-              echo "Backing up existing ${MCP_NAME}..."
-              mv "${INSTALL_ROOT}/${MCP_NAME}" "${INSTALL_ROOT}/${MCP_NAME}.backup.$(date +%Y%m%d%H%M%S)"
-          fi
-
-          # Copy MCP files
-          echo "Copying ${MCP_NAME} files..."
-          cp -r "${SCRIPT_DIR}" "${INSTALL_ROOT}/${MCP_NAME}"
-          rm -f "${INSTALL_ROOT}/${MCP_NAME}/install.sh"
-
-          # Make binaries executable
-          chmod +x "${INSTALL_ROOT}/${MCP_NAME}/bin/${MCP_NAME}"
-          chmod +x "${INSTALL_ROOT}/${MCP_NAME}/bin/platforms"/*
-
-          # Create symlink
-          echo "Creating symlink..."
-          ln -sf "../${MCP_NAME}/bin/${MCP_NAME}" "${INSTALL_ROOT}/bin/${MCP_NAME}"
-
-          # Set cache permissions
-          chmod 755 "${INSTALL_ROOT}/var/cache/${MCP_NAME}"
-
-          # Update mcp.json
-          MCP_JSON="${INSTALL_ROOT}/etc/mcp.json"
-          echo "Updating MCP configuration..."
-
-          if [ -f "$MCP_JSON" ]; then
-              if command -v jq &> /dev/null; then
-                  TEMP_JSON=$(mktemp)
-                  jq --arg cmd "${INSTALL_ROOT}/bin/${MCP_NAME}" \
-                     '.mcpServers["p2kb-mcp"] = {"command": $cmd, "args": []}' \
-                     "$MCP_JSON" > "$TEMP_JSON"
-                  mv "$TEMP_JSON" "$MCP_JSON"
-                  echo "  Merged into existing mcp.json"
-              else
-                  echo "WARNING: jq not installed. Manually add p2kb-mcp to ${MCP_JSON}"
-              fi
-          else
-              cat > "$MCP_JSON" << MCPJSON
-          {
-            "mcpServers": {
-              "p2kb-mcp": {
-                "command": "${INSTALL_ROOT}/bin/${MCP_NAME}",
-                "args": []
-              }
-            }
-          }
-          MCPJSON
-              echo "  Created new mcp.json"
-          fi
-
-          echo ""
-          echo "Installation complete!"
-          echo ""
-          echo "Installed to: ${INSTALL_ROOT}/${MCP_NAME}/"
-          echo "Symlink:      ${INSTALL_ROOT}/bin/${MCP_NAME}"
-          echo "Cache:        ${INSTALL_ROOT}/var/cache/${MCP_NAME}/"
-          echo ""
-          echo "Test: ${INSTALL_ROOT}/bin/${MCP_NAME} --version"
-          INSTALL
-
-          # Strip leading whitespace from heredoc
-          sed -i 's/^          //' "${PACKAGE_DIR}/install.sh"
-          chmod +x "${PACKAGE_DIR}/install.sh"
-
-      - name: Create VERSION_MANIFEST
-        run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          MCP_NAME="p2kb-mcp"
-
-          cat > "container-tools-package/VERSION_MANIFEST.txt" << EOF
-          Package: ${MCP_NAME}
-          Version: ${VERSION}
-          Git Commit: $(git rev-parse --short HEAD)
-          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-          Package Type: container-tools
-          Install Location: /opt/container-tools/${MCP_NAME}/
-          Cache Location: /opt/container-tools/var/cache/${MCP_NAME}/
-
-          Platforms:
-            - linux-amd64
-            - linux-arm64
-            - darwin-amd64
-            - darwin-arm64
-            - windows-amd64
-            - windows-arm64
-          EOF
-
-          # Strip leading whitespace from heredoc
-          sed -i 's/^          //' "container-tools-package/VERSION_MANIFEST.txt"
-
-      - name: Create tarball
-        run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
-          MCP_NAME="p2kb-mcp"
-          cd container-tools-package
-          tar -czf "../p2kb-mcp-v${VERSION}-container-tools.tar.gz" "${MCP_NAME}" VERSION_MANIFEST.txt
+          echo "Package contents:"
+          tar -tzf "p2kb-mcp-v${VERSION}-container-tools.tar.gz" | head -30
 
       - name: Upload container-tools package
         uses: actions/upload-artifact@v4
