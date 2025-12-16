@@ -370,19 +370,19 @@ jobs:
       - name: Copy package to workspace root
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          cp "builds/container-tools/p2kb-mcp-v${VERSION}-container-tools.tar.gz" .
+          cp "builds/container-tools/container-tools-p2kb-mcp-v${VERSION}.tar.gz" .
 
       - name: Verify package contents
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           echo "Package contents:"
-          tar -tzf "p2kb-mcp-v${VERSION}-container-tools.tar.gz" | head -30
+          tar -tzf "container-tools-p2kb-mcp-v${VERSION}.tar.gz" | head -30
 
       - name: Upload container-tools package
         uses: actions/upload-artifact@v4
         with:
           name: container-tools-package-${{ github.ref_name }}
-          path: p2kb-mcp-v*-container-tools.tar.gz
+          path: container-tools-p2kb-mcp-v*.tar.gz
           retention-days: 1
 
   # Create standalone packages
@@ -462,7 +462,7 @@ jobs:
           path: |
             p2kb-mcp-v*.tar.gz
             p2kb-mcp-v*.zip
-            !p2kb-mcp-v*-container-tools.tar.gz
+            !container-tools-p2kb-mcp-v*.tar.gz
           retention-days: 1
 
   # Sign macOS binaries (optional)
@@ -543,9 +543,9 @@ jobs:
       - name: Rebuild container-tools package with signed binaries
         run: |
           cd package
-          # Extract version from tarball filename (p2kb-mcp-vX.X.X-container-tools.tar.gz)
+          # Extract version from tarball filename (container-tools-p2kb-mcp-vX.X.X.tar.gz)
           TARBALL=$(ls *.tar.gz | head -1)
-          VERSION=$(echo "$TARBALL" | sed 's/p2kb-mcp-v\(.*\)-container-tools.tar.gz/\1/')
+          VERSION=$(echo "$TARBALL" | sed 's/container-tools-p2kb-mcp-v\(.*\)\.tar\.gz/\1/')
           echo "Detected version: ${VERSION}"
 
           tar -xzf "$TARBALL"
@@ -554,7 +554,7 @@ jobs:
           # Package structure: p2kb-mcp/, etc/, VERSION_MANIFEST.txt
           MCP_NAME="p2kb-mcp"
           cp ../binaries/*darwin* "${MCP_NAME}/bin/platforms/"
-          tar -czf "${MCP_NAME}-v${VERSION}-container-tools.tar.gz" "${MCP_NAME}" etc VERSION_MANIFEST.txt
+          tar -czf "container-tools-${MCP_NAME}-v${VERSION}.tar.gz" "${MCP_NAME}" etc VERSION_MANIFEST.txt
 
       - name: Upload signed darwin-amd64 binary
         uses: actions/upload-artifact@v4
@@ -733,7 +733,7 @@ jobs:
 
             ```bash
             # Download and extract
-            tar -xzf p2kb-mcp-${{ steps.version.outputs.VERSION }}-container-tools.tar.gz
+            tar -xzf container-tools-p2kb-mcp-${{ steps.version.outputs.VERSION }}.tar.gz
             cd p2kb-mcp
 
             # Install
