@@ -27,11 +27,14 @@ For installations in `/opt/container-tools/` (works alongside other MCPs):
 tar -xzf p2kb-mcp-vX.X.X-container-tools.tar.gz
 cd p2kb-mcp
 
-# Install
+# Install (or update existing installation)
 sudo ./install.sh
 
 # Verify
 /opt/container-tools/bin/p2kb-mcp --version
+
+# Rollback or uninstall
+sudo ./install.sh --uninstall
 ```
 
 ### Option 2: Standalone Package

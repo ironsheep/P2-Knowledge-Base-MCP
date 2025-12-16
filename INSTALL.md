@@ -22,33 +22,81 @@ sudo ./install.sh
 /opt/container-tools/bin/p2kb-mcp --version
 ```
 
-The installer automatically:
-- Creates `/opt/container-tools/` directory structure if needed
-- Installs all platform binaries with universal launcher
-- Creates symlink at `/opt/container-tools/bin/p2kb-mcp`
-- Creates cache directory at `/opt/container-tools/var/cache/p2kb-mcp/`
-- Creates/updates `/opt/container-tools/etc/mcp.json`
+### Installer Options
 
-**Installation layout:**
+The installer supports several options:
+
+```bash
+# Default install to /opt/container-tools
+sudo ./install.sh
+
+# Install to custom location
+./install.sh --target ~/my-container-tools
+
+# Uninstall (or rollback to prior version if available)
+sudo ./install.sh --uninstall
+
+# Show help
+./install.sh --help
+```
+
+### What the Installer Does
+
+The installer automatically:
+
+1. **Creates directory structure** (if first-time install):
+   - `/opt/container-tools/bin/` - Symlinks to MCP launchers
+   - `/opt/container-tools/etc/` - Shared configuration
+   - `/opt/container-tools/var/cache/p2kb-mcp/` - Cache directory
+
+2. **Installs the MCP**:
+   - Copies all platform binaries with universal launcher
+   - Creates symlink at `/opt/container-tools/bin/p2kb-mcp`
+
+3. **Sets up hooks** (for Claude Code integration):
+   - Installs `hooks-dispatcher.sh` (if not present)
+   - Installs `hooks.d/app-start/p2kb-mcp.sh`
+
+4. **Updates mcp.json**:
+   - Merges entry (preserves other MCPs)
+   - Configures hooks dispatcher
+
+5. **Handles updates intelligently**:
+   - Skips install if binary is identical (MD5 comparison)
+   - Backs up previous installation to `-prior` suffix
+   - Backs up mcp.json before modification
+
+### Installation Layout
+
 ```
 /opt/container-tools/
 ├── bin/
 │   └── p2kb-mcp -> ../p2kb-mcp/bin/p2kb-mcp
 ├── etc/
-│   └── mcp.json
+│   ├── mcp.json                    # Shared MCP configuration
+│   ├── hooks-dispatcher.sh         # Hook dispatcher script
+│   └── hooks.d/
+│       ├── app-start/
+│       │   └── p2kb-mcp.sh         # App start hook
+│       ├── compact-start/
+│       └── compact-end/
 ├── var/
 │   └── cache/
-│       └── p2kb-mcp/     # Cache directory
+│       └── p2kb-mcp/               # Cache directory
 └── p2kb-mcp/
     ├── bin/
-    │   ├── p2kb-mcp      # Universal launcher
-    │   └── platforms/    # Platform binaries
+    │   ├── p2kb-mcp                # Universal launcher
+    │   └── platforms/              # Platform binaries
+    ├── backup/
+    │   └── mcp.json-prior          # Backup of mcp.json
     ├── README.md
     ├── CHANGELOG.md
     └── LICENSE
 ```
 
 ### Standalone Package
+
+For single-platform installations without container-tools:
 
 1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
 2. Download the appropriate package for your platform:
@@ -223,11 +271,24 @@ rm -rf /opt/p2kb-mcp/.cache/*
 
 ### Container-Tools Installation
 
+**Using the installer (recommended):**
+```bash
+# Navigate to extracted package directory, or download again
+cd p2kb-mcp
+sudo ./install.sh --uninstall
+```
+
+If a prior version exists (from a previous update), uninstall will **rollback** to that version.
+If no prior exists, it performs a **full removal**.
+
+**Manual removal:**
 ```bash
 # Remove the MCP
 sudo rm -rf /opt/container-tools/p2kb-mcp
+sudo rm -rf /opt/container-tools/p2kb-mcp-prior  # if exists
 sudo rm -f /opt/container-tools/bin/p2kb-mcp
 sudo rm -rf /opt/container-tools/var/cache/p2kb-mcp
+sudo rm -f /opt/container-tools/etc/hooks.d/*/p2kb-mcp.sh
 
 # Edit /opt/container-tools/etc/mcp.json to remove the p2kb-mcp entry
 ```
@@ -242,3 +303,32 @@ sudo rm -rf /opt/p2kb-mcp
 # Delete the installation folder
 # Delete %LOCALAPPDATA%\p2kb-mcp
 ```
+
+## Updating
+
+### Container-Tools Installation
+
+The installer handles updates automatically:
+
+```bash
+# Download new version
+tar -xzf p2kb-mcp-vX.X.X-container-tools.tar.gz
+cd p2kb-mcp
+
+# Install (automatically backs up current version)
+sudo ./install.sh
+
+# If something goes wrong, rollback
+sudo ./install.sh --uninstall
+```
+
+The installer:
+1. Compares binary MD5 checksums - skips if identical
+2. Backs up current installation to `p2kb-mcp-prior/`
+3. Backs up mcp.json to `p2kb-mcp/backup/mcp.json-prior`
+4. Installs new version
+5. Preserves other MCPs in mcp.json
+
+### Standalone Installation
+
+Replace the installation directory with the new version.

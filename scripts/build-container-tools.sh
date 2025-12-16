@@ -3,7 +3,7 @@
 # build-container-tools.sh - Build the container-tools distribution package
 #
 # Creates a tarball that installs to /opt/container-tools/p2kb-mcp/
-# with cache at /opt/container-tools/var/cache/p2kb-mcp/
+# following the Container Tools MCP Integration Guide
 #
 set -e
 
@@ -35,7 +35,7 @@ echo "Build Date: ${BUILD_DATE}"
 echo ""
 
 # Clean and create build directory
-# Package structure:
+# Package structure (following Container Tools MCP Integration Guide):
 #   p2kb-mcp/
 #   ├── bin/
 #   │   ├── p2kb-mcp           (universal launcher)
@@ -44,8 +44,15 @@ echo ""
 #   ├── CHANGELOG.md
 #   ├── LICENSE
 #   └── install.sh
+#   etc/
+#   ├── hooks-dispatcher.sh
+#   └── hooks.d/
+#       └── app-start/
+#           └── p2kb-mcp.sh
+#   VERSION_MANIFEST.txt
 rm -rf "${PACKAGE_DIR}"
 mkdir -p "${PACKAGE_DIR}/${MCP_NAME}/bin/platforms"
+mkdir -p "${PACKAGE_DIR}/etc/hooks.d/app-start"
 
 # Build function
 build_binary() {
@@ -90,7 +97,14 @@ cat > "${PACKAGE_DIR}/${MCP_NAME}/bin/${MCP_NAME}" << 'LAUNCHER'
 set -e
 
 LAUNCHER_VERSION="__VERSION__"
-BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks to get the actual script location
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+BIN_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 PLATFORMS_DIR="${BIN_DIR}/platforms"
 MCP_NAME="p2kb-mcp"
 
@@ -175,114 +189,410 @@ cp "${REPO_ROOT}/README.md" "${PACKAGE_DIR}/${MCP_NAME}/"
 cp "${REPO_ROOT}/CHANGELOG.md" "${PACKAGE_DIR}/${MCP_NAME}/"
 cp "${REPO_ROOT}/LICENSE" "${PACKAGE_DIR}/${MCP_NAME}/"
 
+echo "Creating hooks dispatcher..."
+
+# Create hooks-dispatcher.sh (following Container Tools MCP Integration Guide)
+cat > "${PACKAGE_DIR}/etc/hooks-dispatcher.sh" << 'DISPATCHER'
+#!/bin/bash
+#
+# Container Tools Hook Dispatcher
+# Runs all hook scripts for a given hook type
+#
+# Usage: hooks-dispatcher.sh <hook-type>
+# Example: hooks-dispatcher.sh app-start
+#
+
+set -e
+
+HOOK_TYPE="$1"
+HOOKS_DIR="/opt/container-tools/etc/hooks.d/${HOOK_TYPE}"
+
+if [ -z "$HOOK_TYPE" ]; then
+    echo "Usage: $0 <hook-type>" >&2
+    exit 1
+fi
+
+if [ ! -d "$HOOKS_DIR" ]; then
+    # No hooks registered for this type - that's okay
+    exit 0
+fi
+
+# Run all executable scripts in alphabetical order
+for script in "$HOOKS_DIR"/*.sh; do
+    if [ -f "$script" ] && [ -x "$script" ]; then
+        if [ -n "$CONTAINER_TOOLS_DEBUG" ]; then
+            echo "[hooks-dispatcher] Running: $script" >&2
+        fi
+
+        # Run hook, capture errors but don't stop other hooks
+        if ! "$script"; then
+            echo "[hooks-dispatcher] Warning: $script failed" >&2
+        fi
+    fi
+done
+
+exit 0
+DISPATCHER
+chmod +x "${PACKAGE_DIR}/etc/hooks-dispatcher.sh"
+
+echo "Creating app-start hook script..."
+
+# Create p2kb-mcp app-start hook
+cat > "${PACKAGE_DIR}/etc/hooks.d/app-start/${MCP_NAME}.sh" << 'HOOK'
+#!/bin/bash
+#
+# p2kb-mcp app-start hook
+# Called when Claude Code starts
+#
+# This hook can be used to:
+# - Pre-warm the cache
+# - Check for updates
+# - Initialize state
+#
+
+# Currently a no-op placeholder for future use
+# Uncomment below to enable debug output:
+# if [ -n "$CONTAINER_TOOLS_DEBUG" ]; then
+#     echo "[p2kb-mcp] App start hook executed" >&2
+# fi
+
+exit 0
+HOOK
+chmod +x "${PACKAGE_DIR}/etc/hooks.d/app-start/${MCP_NAME}.sh"
+
 echo "Creating install script..."
 
-# Create install.sh
+# Create install.sh (following Container Tools MCP Integration Guide Section 8)
 cat > "${PACKAGE_DIR}/${MCP_NAME}/install.sh" << 'INSTALL'
 #!/bin/bash
 #
-# Install p2kb-mcp into /opt/container-tools/
-# Creates proper directory structure for container-tools ecosystem
+# p2kb-mcp installer for container-tools
 #
+# Usage:
+#   ./install.sh [OPTIONS] [target-dir]
+#
+# Options:
+#   --target DIR    Install to DIR (default: /opt/container-tools)
+#   --uninstall     Remove/rollback p2kb-mcp from container-tools
+#   --help          Show this help
+#
+# Default target: /opt/container-tools
+#
+
 set -e
 
+YOUR_MCP="p2kb-mcp"
+VERSION="__VERSION__"
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+# Parse arguments
+UNINSTALL=false
+TARGET="/opt/container-tools"
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --uninstall)
+            UNINSTALL=true
+            shift
+            ;;
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
+        --help|-h)
+            head -20 "$0" | tail -15
+            exit 0
+            ;;
+        *)
+            TARGET="$1"
+            shift
+            ;;
+    esac
+done
+
+# Check for sudo if needed
+need_sudo() {
+    if [ -w "$TARGET" ] 2>/dev/null || [ -w "$(dirname "$TARGET")" ] 2>/dev/null; then
+        echo ""
+    else
+        echo "sudo"
+    fi
+}
+SUDO=$(need_sudo)
+
+# Get script directory (where the package was extracted)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MCP_NAME="p2kb-mcp"
-INSTALL_ROOT="/opt/container-tools"
+PACKAGE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-echo "Installing ${MCP_NAME} to ${INSTALL_ROOT}..."
+#
+# PLATFORM DETECTION
+#
+detect_platform() {
+    local os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64) arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *) arch="unknown" ;;
+    esac
+    echo "${os}-${arch}"
+}
+
+#
+# UNINSTALL / ROLLBACK
+#
+if [ "$UNINSTALL" = true ]; then
+    info "Uninstalling $YOUR_MCP from $TARGET..."
+
+    # Check if we have a prior installation to roll back to
+    if [ -d "$TARGET/$YOUR_MCP-prior" ]; then
+        info "Prior installation found - performing rollback..."
+
+        # 1. Remove current installation
+        $SUDO rm -rf "$TARGET/$YOUR_MCP"
+
+        # 2. Restore prior installation
+        $SUDO mv "$TARGET/$YOUR_MCP-prior" "$TARGET/$YOUR_MCP"
+        info "Restored prior installation"
+
+        # 3. Rollback mcp.json entry (merge prior entry into current mcp.json)
+        PRIOR_MCP_JSON="$TARGET/$YOUR_MCP/backup/mcp.json-prior"
+        CURRENT_MCP_JSON="$TARGET/etc/mcp.json"
+
+        if [ -f "$PRIOR_MCP_JSON" ] && command -v jq &> /dev/null; then
+            # Extract our entry from the prior mcp.json
+            PRIOR_ENTRY=$($SUDO cat "$PRIOR_MCP_JSON" | jq ".mcpServers[\"$YOUR_MCP\"]")
+
+            if [ "$PRIOR_ENTRY" != "null" ]; then
+                # Merge prior entry into current mcp.json (preserves other MCPs)
+                $SUDO jq --argjson entry "$PRIOR_ENTRY" \
+                   ".mcpServers[\"$YOUR_MCP\"] = \$entry" \
+                   "$CURRENT_MCP_JSON" > "/tmp/mcp.json.tmp"
+                $SUDO mv "/tmp/mcp.json.tmp" "$CURRENT_MCP_JSON"
+                info "Rolled back mcp.json entry to prior version"
+            fi
+        else
+            warn "Could not rollback mcp.json entry (jq not found or no prior backup)"
+        fi
+
+        # 4. Update symlink to point to restored version
+        case "$OSTYPE" in
+            msys*|cygwin*|win32*) ;;
+            *)
+                $SUDO rm -f "$TARGET/bin/$YOUR_MCP"
+                $SUDO ln -sf "../$YOUR_MCP/bin/$YOUR_MCP" "$TARGET/bin/$YOUR_MCP"
+                ;;
+        esac
+
+        info "Rollback complete - restored prior version"
+    else
+        info "No prior installation - performing full removal..."
+
+        # Remove our directories
+        $SUDO rm -rf "$TARGET/$YOUR_MCP"
+
+        # Remove our symlink
+        $SUDO rm -f "$TARGET/bin/$YOUR_MCP"
+
+        # Remove our hooks
+        $SUDO find "$TARGET/etc/hooks.d" -name "$YOUR_MCP.sh" -delete 2>/dev/null || true
+
+        # Remove our entry from mcp.json
+        if command -v jq &> /dev/null && [ -f "$TARGET/etc/mcp.json" ]; then
+            $SUDO jq "del(.mcpServers[\"$YOUR_MCP\"])" \
+               "$TARGET/etc/mcp.json" > "/tmp/mcp.json.tmp"
+            $SUDO mv "/tmp/mcp.json.tmp" "$TARGET/etc/mcp.json"
+            info "Removed $YOUR_MCP from mcp.json"
+        else
+            warn "Please manually remove '$YOUR_MCP' from $TARGET/etc/mcp.json"
+        fi
+
+        # Remove cache directory
+        $SUDO rm -rf "$TARGET/var/cache/$YOUR_MCP"
+
+        info "Uninstall complete"
+    fi
+    exit 0
+fi
+
+#
+# INSTALL
+#
+
+# Check if already up to date (skip-if-identical optimization)
+PLATFORM=$(detect_platform)
+SOURCE_BIN=$(find "$SCRIPT_DIR/bin/platforms" -name "*-${PLATFORM}" -o -name "*-${PLATFORM}.exe" 2>/dev/null | head -1)
+DEST_BIN=$(find "$TARGET/$YOUR_MCP/bin/platforms" -name "*-${PLATFORM}" -o -name "*-${PLATFORM}.exe" 2>/dev/null | head -1)
+
+if [ -n "$SOURCE_BIN" ] && [ -n "$DEST_BIN" ]; then
+    SOURCE_MD5=$(md5sum "$SOURCE_BIN" 2>/dev/null | awk '{print $1}')
+    DEST_MD5=$(md5sum "$DEST_BIN" 2>/dev/null | awk '{print $1}')
+    if [ -n "$SOURCE_MD5" ] && [ "$SOURCE_MD5" = "$DEST_MD5" ]; then
+        info "Already up to date (${PLATFORM} binary unchanged)"
+        exit 0
+    fi
+fi
+
 echo ""
+echo "========================================="
+echo -e "${BLUE}Installing $YOUR_MCP v${VERSION}${NC}"
+echo "========================================="
+echo ""
+info "Target: $TARGET"
 
-# Check for root/sudo
-if [ "$EUID" -ne 0 ] && [ ! -w "$INSTALL_ROOT" ] 2>/dev/null; then
-    echo "This script requires sudo to install to ${INSTALL_ROOT}"
-    echo "Re-running with sudo..."
-    exec sudo "$0" "$@"
+# 1. Create directory structure if first-time install
+if [ ! -d "$TARGET" ]; then
+    info "Creating container-tools directory structure..."
+    $SUDO mkdir -p "$TARGET/bin"
+    $SUDO mkdir -p "$TARGET/etc/hooks.d/app-start"
+    $SUDO mkdir -p "$TARGET/etc/hooks.d/compact-start"
+    $SUDO mkdir -p "$TARGET/etc/hooks.d/compact-end"
+    $SUDO mkdir -p "$TARGET/var/cache/$YOUR_MCP"
 fi
 
-# Create container-tools directory structure
-echo "Creating directory structure..."
-mkdir -p "${INSTALL_ROOT}/bin"
-mkdir -p "${INSTALL_ROOT}/etc"
-mkdir -p "${INSTALL_ROOT}/var/cache/${MCP_NAME}"
+# Ensure cache directory exists
+$SUDO mkdir -p "$TARGET/var/cache/$YOUR_MCP"
 
-# Backup existing installation if present
-if [ -d "${INSTALL_ROOT}/${MCP_NAME}" ]; then
-    echo "Backing up existing ${MCP_NAME}..."
-    mv "${INSTALL_ROOT}/${MCP_NAME}" "${INSTALL_ROOT}/${MCP_NAME}.backup.$(date +%Y%m%d%H%M%S)"
+# 2. Backup existing mcp.json to our territory
+if [ -f "$TARGET/etc/mcp.json" ]; then
+    $SUDO mkdir -p "$TARGET/$YOUR_MCP/backup"
+    $SUDO cp "$TARGET/etc/mcp.json" "$TARGET/$YOUR_MCP/backup/mcp.json-prior"
+    info "Backed up mcp.json to $YOUR_MCP/backup/"
 fi
 
-# Copy MCP files
-echo "Copying ${MCP_NAME} files..."
-cp -r "${SCRIPT_DIR}" "${INSTALL_ROOT}/${MCP_NAME}"
+# 3. Backup existing installation with -prior suffix (depth of 1)
+if [ -d "$TARGET/$YOUR_MCP" ]; then
+    info "Backing up previous installation..."
+    $SUDO rm -rf "$TARGET/$YOUR_MCP-prior"
+    $SUDO mv "$TARGET/$YOUR_MCP" "$TARGET/$YOUR_MCP-prior"
+fi
+
+# 4. Install MCP directory
+info "Installing $YOUR_MCP..."
+$SUDO cp -r "$SCRIPT_DIR" "$TARGET/$YOUR_MCP"
 
 # Remove install.sh from installed location (not needed after install)
-rm -f "${INSTALL_ROOT}/${MCP_NAME}/install.sh"
+$SUDO rm -f "$TARGET/$YOUR_MCP/install.sh"
 
 # Make binaries executable
-chmod +x "${INSTALL_ROOT}/${MCP_NAME}/bin/${MCP_NAME}"
-chmod +x "${INSTALL_ROOT}/${MCP_NAME}/bin/platforms"/*
+$SUDO chmod +x "$TARGET/$YOUR_MCP/bin/$YOUR_MCP"
+$SUDO chmod +x "$TARGET/$YOUR_MCP/bin/platforms"/* 2>/dev/null || true
 
-# Create symlink in bin directory
-echo "Creating symlink..."
-ln -sf "../${MCP_NAME}/bin/${MCP_NAME}" "${INSTALL_ROOT}/bin/${MCP_NAME}"
-
-# Set up cache directory permissions
-chmod 755 "${INSTALL_ROOT}/var/cache/${MCP_NAME}"
-
-# Update mcp.json
-MCP_JSON="${INSTALL_ROOT}/etc/mcp.json"
-echo "Updating MCP configuration..."
-
-if [ -f "$MCP_JSON" ]; then
-    # Check if jq is available
-    if command -v jq &> /dev/null; then
-        # Merge our entry into existing config
-        TEMP_JSON=$(mktemp)
-        jq --arg cmd "${INSTALL_ROOT}/bin/${MCP_NAME}" \
-           '.mcpServers["p2kb-mcp"] = {"command": $cmd, "args": []}' \
-           "$MCP_JSON" > "$TEMP_JSON"
-        mv "$TEMP_JSON" "$MCP_JSON"
-        echo "  Merged into existing mcp.json"
-    else
-        echo ""
-        echo "WARNING: jq not installed. Please manually add to ${MCP_JSON}:"
-        echo ""
-        echo '  "p2kb-mcp": {'
-        echo "    \"command\": \"${INSTALL_ROOT}/bin/${MCP_NAME}\","
-        echo '    "args": []'
-        echo '  }'
-        echo ""
-    fi
-else
-    # Create new mcp.json
-    cat > "$MCP_JSON" << MCPJSON
-{
-  "mcpServers": {
-    "p2kb-mcp": {
-      "command": "${INSTALL_ROOT}/bin/${MCP_NAME}",
-      "args": []
-    }
-  }
-}
-MCPJSON
-    echo "  Created new mcp.json"
+# 5. Install hooks dispatcher if missing
+if [ ! -f "$TARGET/etc/hooks-dispatcher.sh" ]; then
+    info "Installing hooks dispatcher..."
+    $SUDO cp "$PACKAGE_ROOT/etc/hooks-dispatcher.sh" "$TARGET/etc/"
+    $SUDO chmod +x "$TARGET/etc/hooks-dispatcher.sh"
 fi
 
+# 6. Install our hooks
+info "Installing hooks..."
+if [ -f "$PACKAGE_ROOT/etc/hooks.d/app-start/$YOUR_MCP.sh" ]; then
+    $SUDO cp "$PACKAGE_ROOT/etc/hooks.d/app-start/$YOUR_MCP.sh" "$TARGET/etc/hooks.d/app-start/"
+    $SUDO chmod +x "$TARGET/etc/hooks.d/app-start/$YOUR_MCP.sh"
+fi
+
+# 7. Create symlink (Linux/macOS only)
+case "$OSTYPE" in
+    msys*|cygwin*|win32*)
+        warn "Windows detected - skipping symlink"
+        warn "Add $TARGET/$YOUR_MCP/bin to your PATH"
+        ;;
+    *)
+        $SUDO ln -sf "../$YOUR_MCP/bin/$YOUR_MCP" "$TARGET/bin/$YOUR_MCP"
+        info "Created symlink: $TARGET/bin/$YOUR_MCP"
+        ;;
+esac
+
+# 8. Update mcp.json
+MCP_JSON="$TARGET/etc/mcp.json"
+YOUR_COMMAND="$TARGET/$YOUR_MCP/bin/$YOUR_MCP"
+DISPATCHER="$TARGET/etc/hooks-dispatcher.sh"
+
+if [ ! -f "$MCP_JSON" ]; then
+    info "Creating mcp.json..."
+    $SUDO tee "$MCP_JSON" > /dev/null << MCPEOF
+{
+  "mcpServers": {
+    "$YOUR_MCP": {
+      "command": "$YOUR_COMMAND",
+      "args": []
+    }
+  },
+  "hooks": {
+    "app-start": "$DISPATCHER app-start",
+    "compact-start": "$DISPATCHER compact-start",
+    "compact-end": "$DISPATCHER compact-end"
+  }
+}
+MCPEOF
+elif command -v jq &> /dev/null; then
+    info "Merging into mcp.json..."
+    $SUDO jq --arg name "$YOUR_MCP" \
+       --arg cmd "$YOUR_COMMAND" \
+       --arg dispatcher "$DISPATCHER" \
+       '.mcpServers[$name] = {"command": $cmd, "args": []} |
+        .hooks["app-start"] = "\($dispatcher) app-start" |
+        .hooks["compact-start"] = "\($dispatcher) compact-start" |
+        .hooks["compact-end"] = "\($dispatcher) compact-end"' \
+       "$MCP_JSON" > "/tmp/mcp.json.tmp"
+    $SUDO mv "/tmp/mcp.json.tmp" "$MCP_JSON"
+else
+    warn "jq not found - please manually configure mcp.json"
+    warn "Add $YOUR_MCP entry pointing to: $YOUR_COMMAND"
+fi
+
+# 9. Verify installation
 echo ""
-echo "=============================================="
-echo "Installation complete!"
-echo "=============================================="
+info "Verifying installation..."
+if [ -x "$TARGET/$YOUR_MCP/bin/$YOUR_MCP" ]; then
+    VERSION_OUTPUT=$("$TARGET/$YOUR_MCP/bin/$YOUR_MCP" --version 2>&1 | head -1)
+    info "Installed: $VERSION_OUTPUT"
+else
+    error "Installation verification failed - launcher not executable"
+fi
+
+# Summary
 echo ""
-echo "Installed to: ${INSTALL_ROOT}/${MCP_NAME}/"
-echo "Symlink:      ${INSTALL_ROOT}/bin/${MCP_NAME}"
-echo "Cache:        ${INSTALL_ROOT}/var/cache/${MCP_NAME}/"
-echo "Config:       ${INSTALL_ROOT}/etc/mcp.json"
+echo "========================================="
+echo -e "${GREEN}Installation complete!${NC}"
+echo "========================================="
 echo ""
-echo "Test the installation:"
-echo "  ${INSTALL_ROOT}/bin/${MCP_NAME} --version"
+echo "Installed to: $TARGET/$YOUR_MCP/"
+echo "Cache:        $TARGET/var/cache/$YOUR_MCP/"
+echo ""
+echo -e "${BLUE}Next steps:${NC}"
+case "$OSTYPE" in
+    msys*|cygwin*|win32*)
+        echo "  1. Add $TARGET/$YOUR_MCP/bin to your PATH"
+        ;;
+    *)
+        echo "  1. Add $TARGET/bin to your PATH (if not already)"
+        ;;
+esac
+echo "  2. Restart Claude Code to load the new MCP"
+echo ""
+echo -e "${BLUE}Test:${NC}"
+echo "  $TARGET/$YOUR_MCP/bin/$YOUR_MCP --version"
+echo ""
+echo -e "${BLUE}Rollback (if needed):${NC}"
+echo "  ./install.sh --uninstall"
+echo ""
 INSTALL
 
+# Replace version placeholder in install.sh
+sed -i.bak "s/__VERSION__/${VERSION}/g" "${PACKAGE_DIR}/${MCP_NAME}/install.sh"
+rm -f "${PACKAGE_DIR}/${MCP_NAME}/install.sh.bak"
 chmod +x "${PACKAGE_DIR}/${MCP_NAME}/install.sh"
 
 echo "Creating VERSION_MANIFEST.txt..."
@@ -299,6 +609,21 @@ Package Type: container-tools
 Install Location: /opt/container-tools/${MCP_NAME}/
 Cache Location: /opt/container-tools/var/cache/${MCP_NAME}/
 
+Package Structure:
+  ${MCP_NAME}/
+  ├── bin/
+  │   ├── ${MCP_NAME}           (universal launcher)
+  │   └── platforms/            (platform binaries)
+  ├── README.md
+  ├── CHANGELOG.md
+  ├── LICENSE
+  └── install.sh
+  etc/
+  ├── hooks-dispatcher.sh       (shared hook dispatcher)
+  └── hooks.d/
+      └── app-start/
+          └── ${MCP_NAME}.sh    (app-start hook)
+
 Platforms:
   - darwin-amd64
   - darwin-arm64
@@ -306,14 +631,20 @@ Platforms:
   - linux-arm64
   - windows-amd64
   - windows-arm64
+
+Installer Features:
+  - Skip-if-identical (MD5 comparison)
+  - Rollback on --uninstall
+  - hooks.d dispatcher pattern
+  - mcp.json merge (preserves other MCPs)
 MANIFEST
 
 echo ""
 echo "Creating tarball..."
 
-# Create tarball - package contains p2kb-mcp/ directory
+# Create tarball - package contains p2kb-mcp/ directory, etc/ directory, and manifest
 cd "${BUILD_DIR}"
-tar -czf "${PACKAGE_NAME}.tar.gz" -C "${PACKAGE_NAME}" "${MCP_NAME}" VERSION_MANIFEST.txt
+tar -czf "${PACKAGE_NAME}.tar.gz" -C "${PACKAGE_NAME}" "${MCP_NAME}" etc VERSION_MANIFEST.txt
 
 echo ""
 echo "=============================================="
@@ -329,3 +660,9 @@ echo "To install:"
 echo "  tar -xzf ${PACKAGE_NAME}.tar.gz"
 echo "  cd ${MCP_NAME}"
 echo "  sudo ./install.sh"
+echo ""
+echo "To install to custom location:"
+echo "  sudo ./install.sh --target /custom/path"
+echo ""
+echo "To uninstall/rollback:"
+echo "  sudo ./install.sh --uninstall"

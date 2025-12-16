@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2025-12-16
+
+### Added
+
+- **Container Tools Integration Guide Compliance**:
+  - Full implementation of the Container Tools MCP Integration Guide
+  - hooks.d dispatcher pattern for multi-MCP hook coexistence
+  - Shared hooks-dispatcher.sh for app-start, compact-start, compact-end hooks
+  - Per-MCP hook scripts in `/opt/container-tools/etc/hooks.d/`
+
+- **Enhanced Installer**:
+  - `--target DIR` option for custom installation locations
+  - `--uninstall` option with intelligent rollback support
+  - `--help` option for usage information
+  - Skip-if-identical optimization (MD5 checksum comparison)
+  - Automatic backup of previous installation to `-prior` suffix
+  - Backup of mcp.json before modification
+  - Proper mcp.json merging (preserves other MCPs)
+
+- **Rollback Support**:
+  - Uninstall restores prior version if available
+  - mcp.json entry rollback (merges prior entry, preserves others)
+  - Symlink restoration on rollback
+
+- **Improved Launcher**:
+  - Symlink resolution for correct binary path detection
+  - Works correctly when invoked via `/opt/container-tools/bin/` symlink
+
+### Changed
+
+- Package structure now includes `etc/` directory with:
+  - `hooks-dispatcher.sh` - Universal hook dispatcher
+  - `hooks.d/app-start/p2kb-mcp.sh` - App start hook
+- Backup strategy changed from timestamp suffix to single `-prior` suffix
+- mcp.json now includes hooks configuration pointing to dispatcher
+
+### Fixed
+
+- Universal launcher now correctly resolves symlinks to find platform binaries
+
 ## [1.1.0] - 2025-12-14
 
 ### Breaking Changes
@@ -117,6 +157,7 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/tag/v1.0.0
