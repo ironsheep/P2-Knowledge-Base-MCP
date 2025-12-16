@@ -543,11 +543,18 @@ jobs:
       - name: Rebuild container-tools package with signed binaries
         run: |
           cd package
-          tar -xzf *.tar.gz
-          rm *.tar.gz
-          PACKAGE_DIR=$(ls -d */ | head -1)
-          cp ../binaries/*darwin* "${PACKAGE_DIR}/bin/platforms/"
-          tar -czf "${PACKAGE_DIR%/}-container-tools.tar.gz" "$PACKAGE_DIR"
+          # Extract version from tarball filename (p2kb-mcp-vX.X.X-container-tools.tar.gz)
+          TARBALL=$(ls *.tar.gz | head -1)
+          VERSION=$(echo "$TARBALL" | sed 's/p2kb-mcp-v\(.*\)-container-tools.tar.gz/\1/')
+          echo "Detected version: ${VERSION}"
+
+          tar -xzf "$TARBALL"
+          rm "$TARBALL"
+
+          # Package structure: p2kb-mcp/, etc/, VERSION_MANIFEST.txt
+          MCP_NAME="p2kb-mcp"
+          cp ../binaries/*darwin* "${MCP_NAME}/bin/platforms/"
+          tar -czf "${MCP_NAME}-v${VERSION}-container-tools.tar.gz" "${MCP_NAME}" etc VERSION_MANIFEST.txt
 
       - name: Upload signed darwin-amd64 binary
         uses: actions/upload-artifact@v4
