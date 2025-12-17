@@ -63,8 +63,8 @@ The installer automatically:
 
 5. **Handles updates intelligently**:
    - Skips install if binary is identical (MD5 comparison)
-   - Backs up previous installation to `-prior` suffix
-   - Backs up mcp.json before modification
+   - Backs up previous installation to `backup/prior/`
+   - Backs up mcp.json to `backup/mcp.json-prior`
 
 ### Installation Layout
 
@@ -80,18 +80,17 @@ The installer automatically:
 │       │   └── p2kb-mcp.sh         # App start hook
 │       ├── compact-start/
 │       └── compact-end/
-├── var/
-│   └── cache/
-│       └── p2kb-mcp/               # Cache directory
 └── p2kb-mcp/
     ├── bin/
     │   ├── p2kb-mcp                # Universal launcher
     │   └── platforms/              # Platform binaries
-    ├── backup/
-    │   └── mcp.json-prior          # Backup of mcp.json
+    ├── backup/                     # Created during updates
+    │   ├── mcp.json-prior          # Backup of mcp.json
+    │   └── prior/                  # Prior installation (for rollback)
     ├── README.md
     ├── CHANGELOG.md
-    └── LICENSE
+    ├── LICENSE
+    └── VERSION_MANIFEST.txt
 ```
 
 ### Standalone Package
@@ -158,7 +157,7 @@ Add to `~/.config/claude/claude_desktop_config.json` (Linux/macOS) or `%APPDATA%
   "mcpServers": {
     "p2kb-mcp": {
       "command": "/opt/container-tools/bin/p2kb-mcp",
-      "args": []
+      "args": ["--mode", "stdio"]
     }
   }
 }
@@ -170,7 +169,7 @@ Add to `~/.config/claude/claude_desktop_config.json` (Linux/macOS) or `%APPDATA%
   "mcpServers": {
     "p2kb-mcp": {
       "command": "/opt/p2kb-mcp/bin/p2kb-mcp",
-      "args": []
+      "args": ["--mode", "stdio"]
     }
   }
 }
@@ -283,11 +282,9 @@ If no prior exists, it performs a **full removal**.
 
 **Manual removal:**
 ```bash
-# Remove the MCP
+# Remove the MCP (includes backup/prior/ if exists)
 sudo rm -rf /opt/container-tools/p2kb-mcp
-sudo rm -rf /opt/container-tools/p2kb-mcp-prior  # if exists
 sudo rm -f /opt/container-tools/bin/p2kb-mcp
-sudo rm -rf /opt/container-tools/var/cache/p2kb-mcp
 sudo rm -f /opt/container-tools/etc/hooks.d/*/p2kb-mcp.sh
 
 # Edit /opt/container-tools/etc/mcp.json to remove the p2kb-mcp entry
@@ -324,10 +321,11 @@ sudo ./install.sh --uninstall
 
 The installer:
 1. Compares binary MD5 checksums - skips if identical
-2. Backs up current installation to `p2kb-mcp-prior/`
-3. Backs up mcp.json to `p2kb-mcp/backup/mcp.json-prior`
+2. Backs up mcp.json to existing installation's `backup/mcp.json-prior`
+3. Moves current installation to temp
 4. Installs new version
-5. Preserves other MCPs in mcp.json
+5. Moves prior installation into new version's `backup/prior/`
+6. Preserves other MCPs in mcp.json
 
 ### Standalone Installation
 

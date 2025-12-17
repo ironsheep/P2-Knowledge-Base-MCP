@@ -59,7 +59,7 @@ Add to your MCP configuration:
   "mcpServers": {
     "p2kb-mcp": {
       "command": "/opt/container-tools/bin/p2kb-mcp",
-      "args": []
+      "args": ["--mode", "stdio"]
     }
   }
 }

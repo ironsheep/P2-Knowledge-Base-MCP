@@ -43,13 +43,13 @@ echo ""
 #   ├── README.md
 #   ├── CHANGELOG.md
 #   ├── LICENSE
+#   ├── VERSION_MANIFEST.txt
 #   └── install.sh
 #   etc/
 #   ├── hooks-dispatcher.sh
 #   └── hooks.d/
 #       └── app-start/
 #           └── p2kb-mcp.sh
-#   VERSION_MANIFEST.txt
 rm -rf "${PACKAGE_DIR}"
 mkdir -p "${PACKAGE_DIR}/${MCP_NAME}/bin/platforms"
 mkdir -p "${PACKAGE_DIR}/etc/hooks.d/app-start"
@@ -355,17 +355,21 @@ if [ "$UNINSTALL" = true ]; then
     info "Uninstalling $YOUR_MCP from $TARGET..."
 
     # Check if we have a prior installation to roll back to
-    if [ -d "$TARGET/$YOUR_MCP-prior" ]; then
+    # Prior installation is stored inside: $TARGET/$YOUR_MCP/backup/prior/
+    if [ -d "$TARGET/$YOUR_MCP/backup/prior" ]; then
         info "Prior installation found - performing rollback..."
 
-        # 1. Remove current installation
+        # 1. Move prior installation to temp (it's inside current installation)
+        $SUDO mv "$TARGET/$YOUR_MCP/backup/prior" "/tmp/$YOUR_MCP-restore"
+
+        # 2. Remove current installation
         $SUDO rm -rf "$TARGET/$YOUR_MCP"
 
-        # 2. Restore prior installation
-        $SUDO mv "$TARGET/$YOUR_MCP-prior" "$TARGET/$YOUR_MCP"
+        # 3. Restore prior installation from temp
+        $SUDO mv "/tmp/$YOUR_MCP-restore" "$TARGET/$YOUR_MCP"
         info "Restored prior installation"
 
-        # 3. Rollback mcp.json entry (merge prior entry into current mcp.json)
+        # 4. Rollback mcp.json entry (merge prior entry into current mcp.json)
         PRIOR_MCP_JSON="$TARGET/$YOUR_MCP/backup/mcp.json-prior"
         CURRENT_MCP_JSON="$TARGET/etc/mcp.json"
 
@@ -385,7 +389,7 @@ if [ "$UNINSTALL" = true ]; then
             warn "Could not rollback mcp.json entry (jq not found or no prior backup)"
         fi
 
-        # 4. Update symlink to point to restored version
+        # 5. Update symlink to point to restored version
         case "$OSTYPE" in
             msys*|cygwin*|win32*) ;;
             *)
@@ -398,7 +402,7 @@ if [ "$UNINSTALL" = true ]; then
     else
         info "No prior installation - performing full removal..."
 
-        # Remove our directories
+        # Remove our directory
         $SUDO rm -rf "$TARGET/$YOUR_MCP"
 
         # Remove our symlink
@@ -416,9 +420,6 @@ if [ "$UNINSTALL" = true ]; then
         else
             warn "Please manually remove '$YOUR_MCP' from $TARGET/etc/mcp.json"
         fi
-
-        # Remove cache directory
-        $SUDO rm -rf "$TARGET/var/cache/$YOUR_MCP"
 
         info "Uninstall complete"
     fi
@@ -457,34 +458,45 @@ if [ ! -d "$TARGET" ]; then
     $SUDO mkdir -p "$TARGET/etc/hooks.d/app-start"
     $SUDO mkdir -p "$TARGET/etc/hooks.d/compact-start"
     $SUDO mkdir -p "$TARGET/etc/hooks.d/compact-end"
-    $SUDO mkdir -p "$TARGET/var/cache/$YOUR_MCP"
 fi
 
-# Ensure cache directory exists
-$SUDO mkdir -p "$TARGET/var/cache/$YOUR_MCP"
+# Ensure subdirectories exist
+$SUDO mkdir -p "$TARGET/bin"
+$SUDO mkdir -p "$TARGET/etc/hooks.d/app-start"
 
-# 2. Backup existing mcp.json to our territory
-if [ -f "$TARGET/etc/mcp.json" ]; then
-    $SUDO mkdir -p "$TARGET/$YOUR_MCP/backup"
-    $SUDO cp "$TARGET/etc/mcp.json" "$TARGET/$YOUR_MCP/backup/mcp.json-prior"
-    info "Backed up mcp.json to $YOUR_MCP/backup/"
-fi
-
-# 3. Backup existing installation with -prior suffix (depth of 1)
+# 2. Backup existing installation (if any) to temp, then install new, then move backup inside
+PRIOR_TEMP=""
 if [ -d "$TARGET/$YOUR_MCP" ]; then
     info "Backing up previous installation..."
-    $SUDO rm -rf "$TARGET/$YOUR_MCP-prior"
-    $SUDO mv "$TARGET/$YOUR_MCP" "$TARGET/$YOUR_MCP-prior"
+
+    # Backup mcp.json to existing installation (so it travels with the backup)
+    if [ -f "$TARGET/etc/mcp.json" ]; then
+        $SUDO mkdir -p "$TARGET/$YOUR_MCP/backup"
+        $SUDO cp "$TARGET/etc/mcp.json" "$TARGET/$YOUR_MCP/backup/mcp.json-prior"
+    fi
+
+    # Move existing installation to temp (removing any old temp backup)
+    $SUDO rm -rf "/tmp/$YOUR_MCP-prior"
+    $SUDO mv "$TARGET/$YOUR_MCP" "/tmp/$YOUR_MCP-prior"
+    PRIOR_TEMP="/tmp/$YOUR_MCP-prior"
 fi
 
-# 4. Install MCP directory
+# 3. Install MCP directory (SCRIPT_DIR is the MCP folder itself)
 info "Installing $YOUR_MCP..."
 $SUDO cp -r "$SCRIPT_DIR" "$TARGET/$YOUR_MCP"
+
+# 4. Move prior installation into new installation's backup/prior/
+if [ -n "$PRIOR_TEMP" ] && [ -d "$PRIOR_TEMP" ]; then
+    $SUDO mkdir -p "$TARGET/$YOUR_MCP/backup"
+    $SUDO rm -rf "$TARGET/$YOUR_MCP/backup/prior"
+    $SUDO mv "$PRIOR_TEMP" "$TARGET/$YOUR_MCP/backup/prior"
+    info "Prior installation saved to $YOUR_MCP/backup/prior/"
+fi
 
 # Remove install.sh from installed location (not needed after install)
 $SUDO rm -f "$TARGET/$YOUR_MCP/install.sh"
 
-# Make binaries executable
+# Ensure binaries are executable
 $SUDO chmod +x "$TARGET/$YOUR_MCP/bin/$YOUR_MCP"
 $SUDO chmod +x "$TARGET/$YOUR_MCP/bin/platforms"/* 2>/dev/null || true
 
@@ -526,7 +538,7 @@ if [ ! -f "$MCP_JSON" ]; then
   "mcpServers": {
     "$YOUR_MCP": {
       "command": "$YOUR_COMMAND",
-      "args": []
+      "args": ["--mode", "stdio"]
     }
   },
   "hooks": {
@@ -541,7 +553,7 @@ elif command -v jq &> /dev/null; then
     $SUDO jq --arg name "$YOUR_MCP" \
        --arg cmd "$YOUR_COMMAND" \
        --arg dispatcher "$DISPATCHER" \
-       '.mcpServers[$name] = {"command": $cmd, "args": []} |
+       '.mcpServers[$name] = {"command": $cmd, "args": ["--mode", "stdio"]} |
         .hooks["app-start"] = "\($dispatcher) app-start" |
         .hooks["compact-start"] = "\($dispatcher) compact-start" |
         .hooks["compact-end"] = "\($dispatcher) compact-end"' \
@@ -569,7 +581,6 @@ echo -e "${GREEN}Installation complete!${NC}"
 echo "========================================="
 echo ""
 echo "Installed to: $TARGET/$YOUR_MCP/"
-echo "Cache:        $TARGET/var/cache/$YOUR_MCP/"
 echo ""
 echo -e "${BLUE}Next steps:${NC}"
 case "$OSTYPE" in
@@ -597,8 +608,8 @@ chmod +x "${PACKAGE_DIR}/${MCP_NAME}/install.sh"
 
 echo "Creating VERSION_MANIFEST.txt..."
 
-# Create VERSION_MANIFEST.txt
-cat > "${PACKAGE_DIR}/VERSION_MANIFEST.txt" << MANIFEST
+# Create VERSION_MANIFEST.txt (inside MCP folder)
+cat > "${PACKAGE_DIR}/${MCP_NAME}/VERSION_MANIFEST.txt" << MANIFEST
 Package: ${MCP_NAME}
 Version: ${VERSION}
 Git Commit: ${GIT_COMMIT}
@@ -607,22 +618,27 @@ Build Host: $(hostname 2>/dev/null || echo "unknown")
 
 Package Type: container-tools
 Install Location: /opt/container-tools/${MCP_NAME}/
-Cache Location: /opt/container-tools/var/cache/${MCP_NAME}/
 
 Package Structure:
   ${MCP_NAME}/
   ├── bin/
   │   ├── ${MCP_NAME}           (universal launcher)
   │   └── platforms/            (platform binaries)
-  ├── README.md
   ├── CHANGELOG.md
   ├── LICENSE
+  ├── README.md
+  ├── VERSION_MANIFEST.txt
   └── install.sh
   etc/
   ├── hooks-dispatcher.sh       (shared hook dispatcher)
   └── hooks.d/
       └── app-start/
           └── ${MCP_NAME}.sh    (app-start hook)
+
+Runtime Directories (created by installer):
+  ${MCP_NAME}/backup/           (created during updates)
+  ├── mcp.json-prior            (mcp.json before modification)
+  └── prior/                    (prior installation for rollback)
 
 Platforms:
   - darwin-amd64
@@ -634,17 +650,18 @@ Platforms:
 
 Installer Features:
   - Skip-if-identical (MD5 comparison)
-  - Rollback on --uninstall
+  - Rollback on --uninstall (restores backup/prior/)
   - hooks.d dispatcher pattern
   - mcp.json merge (preserves other MCPs)
+  - All backups inside ${MCP_NAME}/backup/
 MANIFEST
 
 echo ""
 echo "Creating tarball..."
 
-# Create tarball - package contains p2kb-mcp/ directory, etc/ directory, and manifest
+# Create tarball - package contains p2kb-mcp/ directory and etc/ directory
 cd "${BUILD_DIR}"
-tar -czf "${PACKAGE_NAME}.tar.gz" -C "${PACKAGE_NAME}" "${MCP_NAME}" etc VERSION_MANIFEST.txt
+tar -czf "${PACKAGE_NAME}.tar.gz" -C "${PACKAGE_NAME}" "${MCP_NAME}" etc
 
 echo ""
 echo "=============================================="
