@@ -7,12 +7,12 @@
 The container-tools package installs P2KB MCP alongside other MCPs in `/opt/container-tools/`:
 
 1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
-2. Download the container-tools package: `p2kb-mcp-vX.X.X-container-tools.tar.gz`
+2. Download the container-tools package: `container-tools-p2kb-mcp-vX.X.X.tar.gz`
 3. Extract and install:
 
 ```bash
 # Extract the package
-tar -xzf p2kb-mcp-v*-container-tools.tar.gz
+tar -xzf container-tools-p2kb-mcp-v*.tar.gz
 cd p2kb-mcp
 
 # Install (requires sudo for /opt)
@@ -47,7 +47,6 @@ The installer automatically:
 1. **Creates directory structure** (if first-time install):
    - `/opt/container-tools/bin/` - Symlinks to MCP launchers
    - `/opt/container-tools/etc/` - Shared configuration
-   - `/opt/container-tools/var/cache/p2kb-mcp/` - Cache directory
 
 2. **Installs the MCP**:
    - Copies all platform binaries with universal launcher
@@ -309,7 +308,7 @@ The installer handles updates automatically:
 
 ```bash
 # Download new version
-tar -xzf p2kb-mcp-vX.X.X-container-tools.tar.gz
+tar -xzf container-tools-p2kb-mcp-vX.X.X.tar.gz
 cd p2kb-mcp
 
 # Install (automatically backs up current version)

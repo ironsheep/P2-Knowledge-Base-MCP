@@ -24,7 +24,7 @@ For installations in `/opt/container-tools/` (works alongside other MCPs):
 
 ```bash
 # Download and extract
-tar -xzf p2kb-mcp-vX.X.X-container-tools.tar.gz
+tar -xzf container-tools-p2kb-mcp-vX.X.X.tar.gz
 cd p2kb-mcp
 
 # Install (or update existing installation)
