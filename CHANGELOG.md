@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2025-12-22
+
+### Changed
+
+- **Simplified Installer**: Removed hooks functionality from container-tools package
+  - p2kb-mcp is stateless and doesn't require session hooks
+  - MCP tools are self-describing through the MCP protocol
+  - Removed `hooks/` directory from package
+  - Removed all `~/.claude/settings.json` management code
+  - Reduced install script from ~400 to ~300 lines
+
+- **Updated Integration Guide**: Documentation updated to v2.0 pattern
+  - Hooks now go in `~/.claude/settings.json` (not `mcp.json`)
+  - Added native Claude Code hook event types documentation
+  - Added jq patterns for MCPs that need hooks
+  - Added migration guide from deprecated hooks-dispatcher pattern
+
+### Fixed
+
+- Fixed mcp.json-prior backup location (now correctly in `backup/` not nested in `backup/prior/`)
+
+### Removed
+
+- Removed `hooks/session-start.sh` from package (was a no-op placeholder)
+- Removed jq as a hard dependency for installation
+
+### Migration
+
+- Legacy cleanup still included: automatically removes old hooks-dispatcher.sh and hooks.d/ artifacts when upgrading from v1.2.0
+
 ## [1.2.0] - 2025-12-16
 
 ### Added
@@ -46,6 +76,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Universal launcher now correctly resolves symlinks to find platform binaries
+
+### Deprecated
+
+- hooks-dispatcher pattern deprecated in favor of native Claude Code hooks in settings.json
 
 ## [1.1.0] - 2025-12-14
 
@@ -157,7 +191,8 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/tag/v1.0.0
