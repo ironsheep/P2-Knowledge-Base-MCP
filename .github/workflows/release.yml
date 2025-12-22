@@ -551,10 +551,11 @@ jobs:
           tar -xzf "$TARBALL"
           rm "$TARBALL"
 
-          # Package structure: p2kb-mcp/ (includes VERSION_MANIFEST.txt)
+          # Package structure: container-tools-p2kb-mcp-vX.X.X/p2kb-mcp/
           MCP_NAME="p2kb-mcp"
-          cp ../binaries/*darwin* "${MCP_NAME}/bin/platforms/"
-          tar -czf "container-tools-${MCP_NAME}-v${VERSION}.tar.gz" "${MCP_NAME}"
+          PACKAGE_DIR="container-tools-${MCP_NAME}-v${VERSION}"
+          cp ../binaries/*darwin* "${PACKAGE_DIR}/${MCP_NAME}/bin/platforms/"
+          tar -czf "container-tools-${MCP_NAME}-v${VERSION}.tar.gz" "${PACKAGE_DIR}"
 
       - name: Upload signed darwin-amd64 binary
         uses: actions/upload-artifact@v4

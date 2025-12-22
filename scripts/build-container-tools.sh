@@ -537,15 +537,16 @@ Package Type: container-tools
 Install Location: /opt/container-tools/${MCP_NAME}/
 
 Package Structure:
-  ${MCP_NAME}/
-  ├── bin/
-  │   ├── ${MCP_NAME}           (universal launcher)
-  │   └── platforms/            (platform binaries)
-  ├── CHANGELOG.md
-  ├── LICENSE
-  ├── README.md
-  ├── VERSION_MANIFEST.txt
-  └── install.sh
+  container-tools-${MCP_NAME}-v${VERSION}/
+  └── ${MCP_NAME}/
+      ├── bin/
+      │   ├── ${MCP_NAME}           (universal launcher)
+      │   └── platforms/            (platform binaries)
+      ├── CHANGELOG.md
+      ├── LICENSE
+      ├── README.md
+      ├── VERSION_MANIFEST.txt
+      └── install.sh
 
 Runtime Directories (created during installation/updates):
   ${MCP_NAME}/backup/
@@ -571,9 +572,9 @@ MANIFEST
 echo ""
 echo "Creating tarball..."
 
-# Create tarball
+# Create tarball - versioned directory as root for side-by-side installs
 cd "${BUILD_DIR}"
-tar -czf "${PACKAGE_NAME}.tar.gz" -C "${PACKAGE_NAME}" "${MCP_NAME}"
+tar -czf "${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
 
 echo ""
 echo "=============================================="
@@ -587,7 +588,7 @@ tar -tzf "${PACKAGE_NAME}.tar.gz" | sed 's/^/  /'
 echo ""
 echo "To install:"
 echo "  tar -xzf ${PACKAGE_NAME}.tar.gz"
-echo "  cd ${MCP_NAME}"
+echo "  cd ${PACKAGE_NAME}/${MCP_NAME}"
 echo "  sudo ./install.sh"
 echo ""
 echo "To install to custom location:"
