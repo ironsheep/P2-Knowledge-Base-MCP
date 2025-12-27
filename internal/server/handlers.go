@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -112,7 +114,13 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 func (s *Server) getContentWithRelated(id interface{}, key string) *MCPResponse {
 	content, err := s.getContent(key)
 	if err != nil {
-		return s.errorResponse(id, -32000, fmt.Sprintf("Failed to fetch content for '%s'", key), err.Error())
+		return s.errorResponse(id, -32000, fmt.Sprintf("Failed to fetch content for '%s'", key),
+			map[string]interface{}{
+				"error":       err.Error(),
+				"key":         key,
+				"hint":        "Check network connectivity and try p2kb_refresh to update the index",
+				"report_info": "If this persists, report: key, error message, and any preceding errors from stderr",
+			})
 	}
 
 	// Extract related instructions
@@ -551,6 +559,12 @@ func (s *Server) successResponse(id interface{}, result interface{}) *MCPRespons
 }
 
 func (s *Server) errorResponse(id interface{}, code int, message string, data interface{}) *MCPResponse {
+	// Log errors to stderr for diagnostics (visible to users checking logs)
+	logLevel := os.Getenv("P2KB_LOG_LEVEL")
+	if logLevel == "debug" || logLevel == "info" {
+		log.Printf("p2kb-mcp error [%d]: %s (data: %v)", code, message, data)
+	}
+
 	return &MCPResponse{
 		JSONRPC: "2.0",
 		ID:      id,

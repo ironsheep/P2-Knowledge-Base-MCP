@@ -67,6 +67,7 @@ type IndexStatus struct {
 // Manager handles index operations.
 type Manager struct {
 	mu          sync.RWMutex
+	fetchMu     sync.Mutex // Prevents concurrent fetches, separate from data lock
 	index       *Index
 	indexPath   string
 	metaPath    string
@@ -85,29 +86,82 @@ func NewManager() *Manager {
 }
 
 // EnsureIndex ensures the index is loaded and fresh.
+// This method is safe for concurrent access and does NOT hold locks during network I/O.
 func (m *Manager) EnsureIndex() error {
+	// Fast path: check with read lock if we have a fresh index
+	m.mu.RLock()
+	if m.index != nil && time.Since(m.lastRefresh) < m.ttl {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
+	// Slow path: need to load or refresh
+	// Use fetchMu to prevent concurrent fetches (separate from data lock)
+	m.fetchMu.Lock()
+	defer m.fetchMu.Unlock()
+
+	// Double-check after acquiring fetch lock (another goroutine may have loaded it)
+	m.mu.RLock()
+	if m.index != nil && time.Since(m.lastRefresh) < m.ttl {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
+	// Try to load from cache (quick file I/O, safe to hold write lock briefly)
+	m.mu.Lock()
+	if m.loadFromCache() {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
+	// Fetch from remote WITHOUT holding the data lock
+	// This is the critical fix: network I/O happens outside the lock
+	idx, data, err := m.fetchIndexData()
+	if err != nil {
+		return fmt.Errorf("index fetch failed: %w", err)
+	}
+
+	// Update the index under write lock (quick operation)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if we have a fresh cached index
-	if m.index != nil && time.Since(m.lastRefresh) < m.ttl {
-		return nil
+	// Save to cache
+	if err := m.saveToCache(data); err != nil {
+		fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: failed to cache index: %v\n", err)
 	}
 
-	// Try to load from cache
-	if m.loadFromCache() {
-		return nil
-	}
-
-	// Fetch from remote
-	return m.fetchIndex()
+	m.index = idx
+	m.lastRefresh = time.Now()
+	return nil
 }
 
 // Refresh forces a refresh of the index.
+// This method fetches fresh data from remote without holding locks during network I/O.
 func (m *Manager) Refresh() error {
+	// Use fetchMu to prevent concurrent fetches
+	m.fetchMu.Lock()
+	defer m.fetchMu.Unlock()
+
+	// Fetch from remote WITHOUT holding the data lock
+	idx, data, err := m.fetchIndexData()
+	if err != nil {
+		return fmt.Errorf("index refresh failed: %w", err)
+	}
+
+	// Update the index under write lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.fetchIndex()
+
+	if err := m.saveToCache(data); err != nil {
+		fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: failed to cache index: %v\n", err)
+	}
+
+	m.index = idx
+	m.lastRefresh = time.Now()
+	return nil
 }
 
 // GetKeyPath returns the path and mtime for a key.
@@ -566,12 +620,14 @@ func (m *Manager) loadFromCache() bool {
 	return true
 }
 
-// fetchIndex fetches the index from the remote URL with cache-busting headers.
-func (m *Manager) fetchIndex() error {
+// fetchIndexData fetches the index from the remote URL and returns the parsed index and raw data.
+// This method does NOT modify any state - it only performs network I/O and parsing.
+// Caller is responsible for updating the index under appropriate locks.
+func (m *Manager) fetchIndexData() (*Index, []byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", IndexURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Cache-busting headers to get fresh content
@@ -580,40 +636,32 @@ func (m *Manager) fetchIndex() error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to fetch index: %w", err)
+		return nil, nil, fmt.Errorf("network error fetching index from %s: %w", IndexURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch index: HTTP %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("HTTP %d fetching index from %s", resp.StatusCode, IndexURL)
 	}
 
 	// Decompress gzip
 	gr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to decompress index: %w", err)
+		return nil, nil, fmt.Errorf("failed to decompress index: %w", err)
 	}
 	defer gr.Close()
 
 	data, err := io.ReadAll(gr)
 	if err != nil {
-		return fmt.Errorf("failed to read index: %w", err)
+		return nil, nil, fmt.Errorf("failed to read index data: %w", err)
 	}
 
 	var idx Index
 	if err := json.Unmarshal(data, &idx); err != nil {
-		return fmt.Errorf("failed to parse index: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse index JSON: %w", err)
 	}
 
-	// Save to cache
-	if err := m.saveToCache(data); err != nil {
-		// Log but don't fail
-		fmt.Fprintf(os.Stderr, "Warning: failed to cache index: %v\n", err)
-	}
-
-	m.index = &idx
-	m.lastRefresh = time.Now()
-	return nil
+	return &idx, data, nil
 }
 
 // GetStaleKeys returns keys whose cached content is older than the index mtime.

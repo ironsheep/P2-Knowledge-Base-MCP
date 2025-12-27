@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2025-12-27
+
+### Fixed
+
+- **Critical: Fixed mutex deadlock in index manager** that caused server crashes
+  - The server would hang and eventually crash with MCP error -32000 "Connection closed"
+  - Root cause: Write lock was held during network I/O (up to 30 seconds)
+  - Symptom: Fuzzy search worked, but fetching content by exact key caused crash
+  - Fix: Network I/O now happens outside the lock using a separate fetch mutex
+
+### Changed
+
+- **Improved error diagnostics** for easier bug reporting
+  - Error responses now include structured hints and report instructions
+  - Set `P2KB_LOG_LEVEL=debug` or `P2KB_LOG_LEVEL=info` to see errors on stderr
+  - Error messages include key, underlying error, and troubleshooting hints
+
 ## [1.2.1] - 2025-12-22
 
 ### Changed
@@ -191,7 +208,8 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.0.0...v1.1.0
