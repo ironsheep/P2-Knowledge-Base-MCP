@@ -562,30 +562,34 @@ func (m *Manager) GetStats() Stats {
 }
 
 // GetIndexStatus returns index freshness information.
+// This method releases the read lock before disk I/O for better concurrency.
 func (m *Manager) GetIndexStatus() IndexStatus {
+	// Get fields that require lock
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	ttl := m.ttl
+	indexPath := m.indexPath
+	var version string
+	if m.index != nil {
+		version = m.index.System.Version
+	}
+	m.mu.RUnlock() // Release lock BEFORE disk I/O
 
 	status := IndexStatus{
-		TTLSeconds:    int64(m.ttl.Seconds()),
-		CacheFilePath: m.indexPath,
+		TTLSeconds:    int64(ttl.Seconds()),
+		CacheFilePath: indexPath,
+		Version:       version,
 	}
 
-	// Check disk cache
-	info, err := os.Stat(m.indexPath)
+	// Check disk cache - no lock needed for this operation
+	info, err := os.Stat(indexPath)
 	if err == nil {
 		status.IsCached = true
 		status.LastUpdated = info.ModTime()
 		status.AgeSeconds = int64(time.Since(info.ModTime()).Seconds())
-		status.NeedsRefresh = time.Since(info.ModTime()) > m.ttl
+		status.NeedsRefresh = time.Since(info.ModTime()) > ttl
 	} else {
 		status.IsCached = false
 		status.NeedsRefresh = true
-	}
-
-	// Get version if index is loaded
-	if m.index != nil {
-		status.Version = m.index.System.Version
 	}
 
 	return status

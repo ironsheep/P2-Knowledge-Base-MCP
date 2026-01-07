@@ -39,16 +39,19 @@ func NewManager() *Manager {
 }
 
 // Get retrieves content from cache.
+// This method is safe for concurrent access - it releases the read lock before
+// any disk I/O to prevent deadlocks when loadFromDisk needs a write lock.
 func (m *Manager) Get(key string) (string, bool) {
+	// Check memory cache first with read lock
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	// Check memory cache first
 	if entry, ok := m.memory[key]; ok {
-		return entry.content, true
+		content := entry.content
+		m.mu.RUnlock()
+		return content, true
 	}
+	m.mu.RUnlock() // Release read lock BEFORE disk I/O
 
-	// Check disk cache
+	// Check disk cache - loadFromDisk will acquire its own write lock if needed
 	content, err := m.loadFromDisk(key)
 	if err != nil {
 		return "", false
@@ -167,19 +170,19 @@ type CacheStats struct {
 }
 
 // GetCachedKeys returns a list of all cached keys (memory + disk).
+// This method releases the read lock before disk I/O for better concurrency.
 func (m *Manager) GetCachedKeys() []string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	// Use a map to deduplicate
 	keySet := make(map[string]struct{})
 
-	// Add memory keys
+	// Add memory keys under read lock
+	m.mu.RLock()
 	for key := range m.memory {
 		keySet[key] = struct{}{}
 	}
+	m.mu.RUnlock() // Release read lock BEFORE disk I/O
 
-	// Add disk keys
+	// Add disk keys - no lock needed for reading directory
 	cacheDir := filepath.Join(m.cacheDir, "cache")
 	entries, err := os.ReadDir(cacheDir)
 	if err == nil {

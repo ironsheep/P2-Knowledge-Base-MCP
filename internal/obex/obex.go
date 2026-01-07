@@ -100,6 +100,7 @@ type AuthorStats struct {
 // Manager handles OBEX operations.
 type Manager struct {
 	mu          sync.RWMutex
+	fetchMu     sync.Mutex                 // Prevents concurrent index fetches, separate from data lock
 	cacheDir    string
 	objectIDs   []string                   // List of all object IDs
 	objects     map[string]*OBEXObject     // Cached objects by ID
@@ -119,22 +120,54 @@ func NewManager() *Manager {
 }
 
 // EnsureIndex ensures the OBEX object list is loaded.
+// This method is safe for concurrent access and does NOT hold locks during network I/O.
 func (m *Manager) EnsureIndex() error {
+	// Fast path: check with read lock if we have a fresh index
+	m.mu.RLock()
+	if len(m.objectIDs) > 0 && time.Since(m.lastRefresh) < m.ttl {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
+	// Slow path: need to load or refresh
+	// Use fetchMu to prevent concurrent fetches (separate from data lock)
+	m.fetchMu.Lock()
+	defer m.fetchMu.Unlock()
+
+	// Double-check after acquiring fetch lock (another goroutine may have loaded it)
+	m.mu.RLock()
+	if len(m.objectIDs) > 0 && time.Since(m.lastRefresh) < m.ttl {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
+	// Try to load from cache (quick file I/O, safe to hold write lock briefly)
+	m.mu.Lock()
+	if m.loadIndexFromCache() {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+
+	// Fetch from GitHub API WITHOUT holding the data lock
+	// This is the critical fix: network I/O happens outside the lock
+	objectIDs, err := m.fetchIndexData()
+	if err != nil {
+		return fmt.Errorf("OBEX index fetch failed: %w", err)
+	}
+
+	// Update the index under write lock (quick operation)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Check if we have a fresh index
-	if len(m.objectIDs) > 0 && time.Since(m.lastRefresh) < m.ttl {
-		return nil
-	}
+	// Save to cache
+	m.saveIndexToCache(objectIDs)
 
-	// Try to load from cache
-	if m.loadIndexFromCache() {
-		return nil
-	}
-
-	// Fetch from GitHub API
-	return m.fetchIndex()
+	m.objectIDs = objectIDs
+	m.lastRefresh = time.Now()
+	return nil
 }
 
 // GetObjectIDs returns all OBEX object IDs.
@@ -353,29 +386,46 @@ func (m *Manager) GetDownloadURL(objectID string) string {
 }
 
 // Refresh forces a refresh of the OBEX index and clears stale objects.
+// This method fetches fresh data from remote without holding locks during network I/O.
 func (m *Manager) Refresh() error {
+	// Use fetchMu to prevent concurrent fetches
+	m.fetchMu.Lock()
+	defer m.fetchMu.Unlock()
+
+	// Fetch from GitHub API WITHOUT holding the data lock
+	objectIDs, err := m.fetchIndexData()
+	if err != nil {
+		return fmt.Errorf("OBEX index refresh failed: %w", err)
+	}
+
+	// Update the index under write lock
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Clear memory cache
 	m.objects = make(map[string]*OBEXObject)
 
-	// Fetch fresh index
-	return m.fetchIndex()
+	// Save to cache
+	m.saveIndexToCache(objectIDs)
+
+	m.objectIDs = objectIDs
+	m.lastRefresh = time.Now()
+	return nil
 }
 
 // ClearCache clears all cached OBEX data.
+// This method releases the lock before disk I/O for better concurrency.
 func (m *Manager) ClearCache() int {
+	// Clear memory cache under lock
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	count := len(m.objects)
 	m.objects = make(map[string]*OBEXObject)
 	m.objectIDs = nil
 	m.lastRefresh = time.Time{}
-
-	// Clear disk cache
 	cacheDir := filepath.Join(m.cacheDir, "obex")
+	m.mu.Unlock() // Release lock BEFORE disk I/O
+
+	// Clear disk cache - no lock needed for this operation
 	_ = os.RemoveAll(cacheDir)
 
 	return count
@@ -484,24 +534,27 @@ func (m *Manager) loadIndexFromCache() bool {
 	return true
 }
 
-func (m *Manager) fetchIndex() error {
+// fetchIndexData fetches the OBEX index from GitHub API and returns the object IDs.
+// This method does NOT modify any state - it only performs network I/O and parsing.
+// Caller is responsible for updating the index under appropriate locks.
+func (m *Manager) fetchIndexData() ([]string, error) {
 	url := fmt.Sprintf("%s/%s", GitHubAPIBase, OBEXPath)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("User-Agent", "p2kb-mcp")
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to fetch OBEX index: %w", err)
+		return nil, fmt.Errorf("failed to fetch OBEX index: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch OBEX index: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to fetch OBEX index: HTTP %d", resp.StatusCode)
 	}
 
 	var entries []struct {
@@ -510,7 +563,7 @@ func (m *Manager) fetchIndex() error {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return fmt.Errorf("failed to parse OBEX index: %w", err)
+		return nil, fmt.Errorf("failed to parse OBEX index: %w", err)
 	}
 
 	var objectIDs []string
@@ -527,13 +580,7 @@ func (m *Manager) fetchIndex() error {
 	}
 
 	sort.Strings(objectIDs)
-
-	// Save to cache
-	m.saveIndexToCache(objectIDs)
-
-	m.objectIDs = objectIDs
-	m.lastRefresh = time.Now()
-	return nil
+	return objectIDs, nil
 }
 
 func (m *Manager) saveIndexToCache(objectIDs []string) {

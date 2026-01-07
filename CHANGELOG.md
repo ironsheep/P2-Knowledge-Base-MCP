@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-01-07
+
+### Fixed
+
+- **Critical: Fixed RLock upgrade deadlock in cache manager** that caused server crashes on parallel exact-key lookups
+  - The server would crash with MCP error -32000 "Connection closed" when 6 parallel exact key queries were made
+  - Root cause: `Get()` held RLock while calling `loadFromDisk()` which tried to acquire Lock - a classic deadlock pattern
+  - Symptom: Fuzzy search worked, but fetching multiple exact keys in parallel caused immediate crash
+  - Fix: RLock is now released before calling `loadFromDisk()` to prevent lock upgrade deadlock
+
+- **Critical: Fixed lock-during-network-I/O in OBEX manager** (same bug pattern as index manager fixed in v1.2.2)
+  - `EnsureIndex()` and `Refresh()` now use the same safe pattern as the index manager
+  - Added separate `fetchMu` mutex to prevent concurrent fetches without blocking readers
+  - Network I/O now happens outside the data lock
+
+- **Moderate: Fixed disk I/O under locks in multiple functions**
+  - `cache.GetCachedKeys()`: RLock released before `os.ReadDir()` call
+  - `obex.ClearCache()`: Lock released before `os.RemoveAll()` call
+  - `index.GetIndexStatus()`: RLock released before `os.Stat()` call
+
+### Added
+
+- Concurrent stress tests for cache and OBEX managers
+  - `TestConcurrentGet`: Reproduces the exact 6-parallel-exact-key-lookup crash scenario
+  - `TestConcurrentGetMemoryAndDisk`: Mixed memory/disk access patterns
+  - `TestConcurrentGetCachedKeys`: Parallel GetCachedKeys calls
+  - `TestConcurrentEnsureIndex`: Parallel EnsureIndex calls
+  - All tests pass with Go's race detector enabled
+
 ## [1.2.2] - 2025-12-27
 
 ### Fixed
@@ -208,7 +237,8 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.1.0...v1.2.0
