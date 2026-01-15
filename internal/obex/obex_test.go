@@ -431,7 +431,7 @@ func TestDownloadAndExtract(t *testing.T) {
 	// Create mock HTTP server for zip download
 	zipServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/zip")
-		w.Write(zipBuf.Bytes())
+		_, _ = w.Write(zipBuf.Bytes())
 	}))
 	defer zipServer.Close()
 
@@ -460,7 +460,7 @@ func TestDownloadAndExtract(t *testing.T) {
 	if err := os.Chdir(workDir); err != nil {
 		t.Fatalf("failed to chdir: %v", err)
 	}
-	defer os.Chdir(oldWd)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	m := &Manager{
 		cacheDir:    filepath.Join(tmpDir, "cache"),
@@ -529,7 +529,7 @@ func TestDownloadAndExtractWithMockServer(t *testing.T) {
 	// Create mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/zip")
-		w.Write(zipBuf.Bytes())
+		_, _ = w.Write(zipBuf.Bytes())
 	}))
 	defer server.Close()
 
@@ -544,7 +544,7 @@ func TestDownloadAndExtractWithMockServer(t *testing.T) {
 	if err := os.Chdir(workDir); err != nil {
 		t.Fatalf("failed to chdir: %v", err)
 	}
-	defer os.Chdir(oldWd)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	// Create manager with mock object
 	m := &Manager{
