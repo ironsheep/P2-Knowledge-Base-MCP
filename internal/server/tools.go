@@ -111,6 +111,38 @@ With author: lists objects by that author.`,
 			},
 		},
 
+		// OBEX download and extract
+		{
+			Name: "p2kb_obex_download",
+			Description: `Download and extract an OBEX object to the local OBEX folder.
+
+Downloads the zip file from Parallax OBEX and extracts it to a subdirectory.
+Default target is "./OBEX/{objectID}-{slug}/" relative to the working directory.
+
+Use this tool AFTER using p2kb_obex_get or p2kb_obex_find to identify the object you want.
+
+Returns:
+- extraction_path: Full path where files were extracted
+- files: List of extracted filenames
+- total_size: Combined size of extracted files in bytes
+
+Example: Download object 2811 "WS2812 LED Driver" -> extracts to ./OBEX/2811-ws2812-led-driver/`,
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"object_id": map[string]interface{}{
+						"type":        "string",
+						"description": "OBEX object ID (e.g., '2811' or 'OB2811')",
+					},
+					"target_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "Override extraction directory. Default: './OBEX/{objectID}-{slug}'",
+					},
+				},
+				"required": []string{"object_id"},
+			},
+		},
+
 		// Version diagnostic
 		{
 			Name:        "p2kb_version",

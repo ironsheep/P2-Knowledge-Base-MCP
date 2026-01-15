@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-01-15
+
+### Added
+
+- **New Tool: `p2kb_obex_download`** - Download and extract OBEX objects directly to your project
+  - AI assistants can now complete the full OBEX workflow: search → get info → download
+  - Automatically extracts zip files to `./OBEX/{objectID}-{slug}/` (e.g., `OBEX/2811-ws2812-led-driver/`)
+  - Returns list of extracted files, paths, and total size
+  - Optional `target_dir` parameter to override default extraction location
+
+- **Security protections** for file operations:
+  - Path traversal prevention (blocks `..` in paths)
+  - Zip slip attack protection (validates all extracted file paths)
+  - Per-file size limits to prevent decompression bombs
+
+### Changed
+
+- OBEX workflow is now complete end-to-end through MCP tools
+  - Previously: AI could only provide download URLs and manual instructions
+  - Now: AI can search, inspect, and download OBEX objects autonomously
+
 ## [1.2.3] - 2026-01-07
 
 ### Fixed
@@ -237,7 +258,8 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.0...v1.2.1

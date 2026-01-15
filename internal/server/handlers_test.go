@@ -587,3 +587,178 @@ func TestRemovedToolsReturnError(t *testing.T) {
 		}
 	}
 }
+
+// Test p2kb_obex_download
+
+func TestHandleOBEXDownloadMissingObjectID(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_obex_download",
+		"arguments": map[string]interface{}{},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for missing object_id")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleOBEXDownloadEmptyObjectID(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_download",
+		"arguments": map[string]interface{}{
+			"object_id": "",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for empty object_id")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleOBEXDownloadInvalidArgs(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "p2kb_obex_download",
+		"arguments": "not an object",
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	if resp.Error == nil {
+		t.Error("expected error for invalid arguments")
+	}
+	if resp.Error.Code != -32602 {
+		t.Errorf("Error.Code = %d, want -32602", resp.Error.Code)
+	}
+}
+
+func TestHandleOBEXDownloadWithObjectID(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_download",
+		"arguments": map[string]interface{}{
+			"object_id": "2811",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Will fail due to network, but tests the path
+	if resp.Error != nil {
+		t.Log("handleOBEXDownload returned error (expected if no network):", resp.Error.Message)
+		// Verify it's a -32000 error (operation failed) not -32602 (invalid params)
+		if resp.Error.Code == -32602 {
+			t.Error("should not be invalid params error")
+		}
+	}
+}
+
+func TestHandleOBEXDownloadWithTargetDir(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_download",
+		"arguments": map[string]interface{}{
+			"object_id":  "2811",
+			"target_dir": "custom/output/path",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Will fail due to network, but tests the path
+	if resp.Error != nil {
+		t.Log("handleOBEXDownload with target_dir returned error (expected if no network):", resp.Error.Message)
+	}
+}
+
+func TestHandleOBEXDownloadWithPathTraversal(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_download",
+		"arguments": map[string]interface{}{
+			"object_id":  "2811",
+			"target_dir": "../../../etc/passwd",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Should fail due to path traversal attempt (or network, but the path check comes later)
+	if resp.Error != nil {
+		t.Log("handleOBEXDownload with path traversal returned error:", resp.Error.Message)
+	}
+}
+
+func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
+	srv := New("1.0.0")
+	params, _ := json.Marshal(map[string]interface{}{
+		"name": "p2kb_obex_download",
+		"arguments": map[string]interface{}{
+			"object_id": "OB2811",
+		},
+	})
+
+	req := &MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params:  params,
+	}
+
+	resp := srv.handleRequest(req)
+	// Will fail due to network, but tests that OB prefix is handled
+	if resp.Error != nil {
+		t.Log("handleOBEXDownload with OB prefix returned error (expected if no network):", resp.Error.Message)
+		// Should NOT be a "missing parameter" error
+		if resp.Error.Code == -32602 {
+			t.Error("OB prefix should be accepted")
+		}
+	}
+}

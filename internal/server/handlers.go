@@ -31,6 +31,8 @@ func (s *Server) handleToolsCall(req *MCPRequest) *MCPResponse {
 		return s.handleOBEXGet(req.ID, params.Arguments)
 	case "p2kb_obex_find":
 		return s.handleOBEXFind(req.ID, params.Arguments)
+	case "p2kb_obex_download":
+		return s.handleOBEXDownload(req.ID, params.Arguments)
 	case "p2kb_version":
 		return s.handleVersion(req.ID)
 	case "p2kb_refresh":
@@ -449,6 +451,42 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 
 	// Shouldn't reach here
 	return s.errorResponse(id, -32602, "Invalid parameters", nil)
+}
+
+// handleOBEXDownload implements p2kb_obex_download - download and extract OBEX objects.
+func (s *Server) handleOBEXDownload(id interface{}, args json.RawMessage) *MCPResponse {
+	var params struct {
+		ObjectID  string `json:"object_id"`
+		TargetDir string `json:"target_dir"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return s.errorResponse(id, -32602, "Invalid arguments", err.Error())
+	}
+
+	if params.ObjectID == "" {
+		return s.errorResponse(id, -32602, "Missing required parameter", "object_id")
+	}
+
+	// Perform download and extraction
+	result, err := s.obexManager.DownloadAndExtract(params.ObjectID, params.TargetDir)
+	if err != nil {
+		return s.errorResponse(id, -32000, "Download failed", map[string]interface{}{
+			"object_id": params.ObjectID,
+			"error":     err.Error(),
+			"hint":      "Check that the object ID is valid using p2kb_obex_get first",
+		})
+	}
+
+	return s.successResponse(id, map[string]interface{}{
+		"type":            "download_complete",
+		"object_id":       result.ObjectID,
+		"title":           result.Title,
+		"extraction_path": result.ExtractionPath,
+		"files":           result.Files,
+		"total_size":      result.TotalSize,
+		"file_count":      len(result.Files),
+		"message":         fmt.Sprintf("Successfully downloaded and extracted %d files to %s", len(result.Files), result.ExtractionPath),
+	})
 }
 
 // handleVersion implements p2kb_version.

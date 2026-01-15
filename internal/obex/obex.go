@@ -2,6 +2,8 @@
 package obex
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,6 +97,15 @@ type SearchResult struct {
 type AuthorStats struct {
 	Name        string `json:"name"`
 	ObjectCount int    `json:"object_count"`
+}
+
+// DownloadResult contains the result of downloading and extracting an OBEX object.
+type DownloadResult struct {
+	ObjectID       string   `json:"object_id"`
+	Title          string   `json:"title"`
+	ExtractionPath string   `json:"extraction_path"`
+	Files          []string `json:"files"`
+	TotalSize      int64    `json:"total_size"`
 }
 
 // Manager handles OBEX operations.
@@ -383,6 +394,203 @@ func (m *Manager) GetTotalObjects() int {
 func (m *Manager) GetDownloadURL(objectID string) string {
 	objectID = normalizeObjectID(objectID)
 	return OBEXDownloadBase + objectID
+}
+
+// DownloadAndExtract downloads an OBEX object zip and extracts it to the target directory.
+// If targetDir is empty, it defaults to "./OBX/{object-slug}/".
+// Returns information about the extracted files.
+func (m *Manager) DownloadAndExtract(objectID, targetDir string) (*DownloadResult, error) {
+	objectID = normalizeObjectID(objectID)
+
+	// Get object metadata to determine title/slug
+	obj, err := m.GetObject(objectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get object metadata: %w", err)
+	}
+
+	// Generate slug from title
+	slug := generateSlug(obj.ObjectMetadata.Title)
+
+	// Determine target directory: OBEX/{objID}-{slug}/
+	if targetDir == "" {
+		if slug != "" {
+			targetDir = filepath.Join("OBEX", objectID+"-"+slug)
+		} else {
+			targetDir = filepath.Join("OBEX", objectID)
+		}
+	}
+
+	// Validate target path (security check)
+	if err := validateTargetPath(targetDir); err != nil {
+		return nil, err
+	}
+
+	// Create target directory
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create target directory: %w", err)
+	}
+
+	// Download the zip file
+	downloadURL := m.GetDownloadURL(objectID)
+	zipData, err := m.downloadZip(downloadURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download zip: %w", err)
+	}
+
+	// Extract zip to target directory
+	files, totalSize, err := extractZip(zipData, targetDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract zip: %w", err)
+	}
+
+	// Get absolute path for result
+	absPath, err := filepath.Abs(targetDir)
+	if err != nil {
+		absPath = targetDir
+	}
+
+	return &DownloadResult{
+		ObjectID:       objectID,
+		Title:          obj.ObjectMetadata.Title,
+		ExtractionPath: absPath,
+		Files:          files,
+		TotalSize:      totalSize,
+	}, nil
+}
+
+// downloadZip downloads a zip file from the given URL and returns its contents.
+func (m *Manager) downloadZip(url string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "p2kb-mcp")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// extractZip extracts a zip archive to the target directory.
+// Returns the list of extracted files and total size.
+func extractZip(zipData []byte, targetDir string) ([]string, int64, error) {
+	reader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid zip file: %w", err)
+	}
+
+	var files []string
+	var totalSize int64
+
+	for _, file := range reader.File {
+		// Security: prevent zip slip attack
+		destPath := filepath.Join(targetDir, file.Name)
+		if !strings.HasPrefix(filepath.Clean(destPath), filepath.Clean(targetDir)) {
+			return nil, 0, fmt.Errorf("invalid file path in zip: %s", file.Name)
+		}
+
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return nil, 0, fmt.Errorf("failed to create directory: %w", err)
+			}
+			continue
+		}
+
+		// Ensure parent directory exists
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return nil, 0, fmt.Errorf("failed to create parent directory: %w", err)
+		}
+
+		// Extract file
+		if err := extractFile(file, destPath); err != nil {
+			return nil, 0, err
+		}
+
+		files = append(files, file.Name)
+		totalSize += int64(file.UncompressedSize64)
+	}
+
+	return files, totalSize, nil
+}
+
+// extractFile extracts a single file from a zip archive.
+func extractFile(file *zip.File, destPath string) error {
+	rc, err := file.Open()
+	if err != nil {
+		return fmt.Errorf("failed to open zip entry: %w", err)
+	}
+	defer rc.Close()
+
+	outFile, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer outFile.Close()
+
+	// Limit copy size to prevent decompression bombs (100MB max per file)
+	_, err = io.Copy(outFile, io.LimitReader(rc, 100*1024*1024))
+	if err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
+}
+
+// validateTargetPath ensures the target path is safe (no directory traversal).
+func validateTargetPath(targetDir string) error {
+	// Check for ".." in original path BEFORE cleaning (Clean will normalize it away)
+	if strings.Contains(targetDir, "..") {
+		return fmt.Errorf("target directory cannot contain '..'")
+	}
+
+	// Clean the path
+	cleaned := filepath.Clean(targetDir)
+
+	// Disallow absolute paths that go outside current directory
+	if filepath.IsAbs(cleaned) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+		if !strings.HasPrefix(cleaned, cwd) {
+			return fmt.Errorf("target directory must be within working directory")
+		}
+	}
+
+	// Also verify the cleaned path doesn't start with ".." (e.g., "../foo")
+	if strings.HasPrefix(cleaned, "..") {
+		return fmt.Errorf("target directory cannot escape working directory")
+	}
+
+	return nil
+}
+
+// generateSlug creates a filesystem-safe slug from a title.
+func generateSlug(title string) string {
+	slug := strings.ToLower(title)
+
+	var result strings.Builder
+	lastWasHyphen := false
+
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			result.WriteRune(r)
+			lastWasHyphen = false
+		} else if !lastWasHyphen {
+			result.WriteRune('-')
+			lastWasHyphen = true
+		}
+	}
+
+	return strings.Trim(result.String(), "-")
 }
 
 // Refresh forces a refresh of the OBEX index and clears stale objects.

@@ -124,9 +124,9 @@ func TestHandleToolsList(t *testing.T) {
 		t.Fatal("tools is not a []Tool")
 	}
 
-	// Check we have all 6 tools
-	if len(tools) != 6 {
-		t.Errorf("got %d tools, want 6", len(tools))
+	// Check we have all 7 tools
+	if len(tools) != 7 {
+		t.Errorf("got %d tools, want 7", len(tools))
 	}
 
 	// Check for specific tools
@@ -137,7 +137,7 @@ func TestHandleToolsList(t *testing.T) {
 
 	expectedTools := []string{
 		"p2kb_get", "p2kb_find", "p2kb_obex_get", "p2kb_obex_find",
-		"p2kb_version", "p2kb_refresh",
+		"p2kb_obex_download", "p2kb_version", "p2kb_refresh",
 	}
 
 	for _, name := range expectedTools {
