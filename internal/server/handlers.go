@@ -79,11 +79,12 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 				"suggestions": keys,
 			})
 		}
-		return s.errorResponse(id, -32000, "No matches found",
-			map[string]interface{}{
-				"query": params.Query,
-				"hint":  "Try using p2kb_find to explore available documentation",
-			})
+		return s.successResponse(id, map[string]interface{}{
+			"type":    "no_matches",
+			"query":   params.Query,
+			"message": "No documentation found matching this query",
+			"hint":    "Try using p2kb_find to explore available documentation",
+		})
 	}
 
 	// If single high-confidence match, return content
@@ -184,10 +185,12 @@ func (s *Server) handleFind(id interface{}, args json.RawMessage) *MCPResponse {
 		keys, err := s.indexManager.GetCategoryKeys(params.Category)
 		if err != nil {
 			categories := s.indexManager.GetCategories()
-			return s.errorResponse(id, -32000, fmt.Sprintf("Category '%s' not found", params.Category),
-				map[string]interface{}{
-					"available_categories": categories,
-				})
+			return s.successResponse(id, map[string]interface{}{
+				"type":                 "category_not_found",
+				"category":             params.Category,
+				"message":              fmt.Sprintf("Category '%s' not found", params.Category),
+				"available_categories": categories,
+			})
 		}
 
 		if params.Limit > 0 && len(keys) > params.Limit {
@@ -257,11 +260,12 @@ func (s *Server) handleOBEXGet(id interface{}, args json.RawMessage) *MCPRespons
 	}
 
 	if len(results) == 0 {
-		return s.errorResponse(id, -32000, "No OBEX objects found",
-			map[string]interface{}{
-				"query": params.Query,
-				"hint":  "Try using p2kb_obex_find to explore available objects",
-			})
+		return s.successResponse(id, map[string]interface{}{
+			"type":    "no_matches",
+			"query":   params.Query,
+			"message": "No OBEX objects found matching this query",
+			"hint":    "Try using p2kb_obex_find to explore available objects",
+		})
 	}
 
 	// Single result - return full object info
@@ -294,10 +298,12 @@ func (s *Server) handleOBEXGet(id interface{}, args json.RawMessage) *MCPRespons
 func (s *Server) getOBEXObject(id interface{}, objectID string) *MCPResponse {
 	obj, err := s.obexManager.GetObject(objectID)
 	if err != nil {
-		return s.errorResponse(id, -32000, fmt.Sprintf("OBEX object not found: %s", objectID),
-			map[string]interface{}{
-				"hint": "Use p2kb_obex_find to search for objects",
-			})
+		return s.successResponse(id, map[string]interface{}{
+			"type":      "object_not_found",
+			"object_id": objectID,
+			"message":   fmt.Sprintf("OBEX object '%s' not found", objectID),
+			"hint":      "Use p2kb_obex_find to search for objects",
+		})
 	}
 
 	meta := obj.ObjectMetadata

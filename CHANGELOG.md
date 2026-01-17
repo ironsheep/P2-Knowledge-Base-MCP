@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-01-17
+
+### Changed
+
+- **Friendlier error handling**: "Not found" responses are now success results instead of JSON-RPC errors
+  - `no_matches` - query worked but found no results (was error -32000)
+  - `category_not_found` - category lookup found no match (includes available categories)
+  - `object_not_found` - OBEX object ID not found
+  - Actual errors (network failures, invalid params) remain as JSON-RPC errors
+  - This prevents potential MCP connection issues and provides friendlier responses for AI assistants
+
 ## [1.3.1] - 2026-01-17
 
 ### Added
@@ -285,7 +296,8 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.2...v1.2.3
