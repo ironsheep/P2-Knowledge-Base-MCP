@@ -30,14 +30,16 @@ type Index struct {
 	System     SystemInfo            `json:"system"`
 	Categories map[string][]string   `json:"categories"`
 	Files      map[string]FileEntry  `json:"files"`
+	Aliases    map[string][]string   `json:"aliases"` // alias -> []canonical keys (first wins)
 }
 
 // SystemInfo contains metadata about the index.
 type SystemInfo struct {
-	Version        string `json:"version"`
-	Generated      string `json:"generated"`
-	TotalEntries   int    `json:"total_entries"`
-	TotalCategories int   `json:"total_categories"`
+	Version         string `json:"version"`
+	Generated       string `json:"generated"`
+	TotalEntries    int    `json:"total_entries"`
+	TotalCategories int    `json:"total_categories"`
+	TotalAliases    int    `json:"total_aliases"`
 }
 
 // FileEntry represents a single file in the index.
@@ -51,6 +53,7 @@ type Stats struct {
 	Version         string
 	TotalEntries    int
 	TotalCategories int
+	TotalAliases    int
 }
 
 // IndexStatus contains index freshness information.
@@ -164,7 +167,76 @@ func (m *Manager) Refresh() error {
 	return nil
 }
 
+// KeyResolution contains the result of resolving a key through aliases.
+type KeyResolution struct {
+	CanonicalKey string // The resolved canonical key (e.g., "p2kbPasm2Add")
+	ResolvedFrom string // The original query if it was an alias (e.g., "ADD"), empty if direct match
+	Found        bool   // Whether the key was found
+}
+
+// ResolveKey resolves a key that might be a canonical key or an alias.
+// Returns the canonical key if found, along with resolution metadata.
+// Case-insensitive alias lookup: tries uppercase first (PASM2 mnemonics),
+// then lowercase (method names, pattern IDs).
+func (m *Manager) ResolveKey(key string) KeyResolution {
+	if err := m.EnsureIndex(); err != nil {
+		return KeyResolution{}
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.resolveKeyLocked(key)
+}
+
+// resolveKeyLocked performs key resolution while holding the read lock.
+// This is an internal helper for use by other methods that already hold the lock.
+func (m *Manager) resolveKeyLocked(key string) KeyResolution {
+	// Direct lookup first
+	if _, ok := m.index.Files[key]; ok {
+		return KeyResolution{CanonicalKey: key, Found: true}
+	}
+
+	// Try alias lookup (case-insensitive)
+	if m.index.Aliases != nil {
+		// Try uppercase first (PASM2 mnemonics like ADD, MOV)
+		if canonicals, ok := m.index.Aliases[strings.ToUpper(key)]; ok && len(canonicals) > 0 {
+			// First entry wins for conflicts (per spec)
+			if _, exists := m.index.Files[canonicals[0]]; exists {
+				return KeyResolution{
+					CanonicalKey: canonicals[0],
+					ResolvedFrom: key,
+					Found:        true,
+				}
+			}
+		}
+		// Try lowercase (method names, pattern IDs)
+		if canonicals, ok := m.index.Aliases[strings.ToLower(key)]; ok && len(canonicals) > 0 {
+			if _, exists := m.index.Files[canonicals[0]]; exists {
+				return KeyResolution{
+					CanonicalKey: canonicals[0],
+					ResolvedFrom: key,
+					Found:        true,
+				}
+			}
+		}
+		// Try exact case (as stored in index)
+		if canonicals, ok := m.index.Aliases[key]; ok && len(canonicals) > 0 {
+			if _, exists := m.index.Files[canonicals[0]]; exists {
+				return KeyResolution{
+					CanonicalKey: canonicals[0],
+					ResolvedFrom: key,
+					Found:        true,
+				}
+			}
+		}
+	}
+
+	return KeyResolution{}
+}
+
 // GetKeyPath returns the path and mtime for a key.
+// Supports both canonical keys and aliases.
 func (m *Manager) GetKeyPath(key string) (string, int64, error) {
 	if err := m.EnsureIndex(); err != nil {
 		return "", 0, err
@@ -173,15 +245,17 @@ func (m *Manager) GetKeyPath(key string) (string, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	entry, ok := m.index.Files[key]
-	if !ok {
+	resolution := m.resolveKeyLocked(key)
+	if !resolution.Found {
 		return "", 0, fmt.Errorf("key not found: %s", key)
 	}
 
+	entry := m.index.Files[resolution.CanonicalKey]
 	return entry.Path, entry.Mtime, nil
 }
 
 // KeyExists checks if a key exists in the index.
+// Supports both canonical keys and aliases.
 func (m *Manager) KeyExists(key string) bool {
 	if err := m.EnsureIndex(); err != nil {
 		return false
@@ -190,8 +264,8 @@ func (m *Manager) KeyExists(key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	_, ok := m.index.Files[key]
-	return ok
+	resolution := m.resolveKeyLocked(key)
+	return resolution.Found
 }
 
 // Search searches for keys matching a term.
@@ -269,8 +343,9 @@ type QueryMatch struct {
 }
 
 // MatchQuery finds keys matching a natural language query.
-// Returns exact match if query is a valid key, otherwise finds best matches.
+// Returns exact match if query is a valid key or alias, otherwise finds best matches.
 // Query examples: "mov instruction", "pasm2 add", "spin2 pinwrite", "cog architecture"
+// Also supports aliases: "ADD", "WAITMS", "motor_controller"
 func (m *Manager) MatchQuery(query string) ([]QueryMatch, error) {
 	if err := m.EnsureIndex(); err != nil {
 		return nil, err
@@ -279,10 +354,11 @@ func (m *Manager) MatchQuery(query string) ([]QueryMatch, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Check for exact key match first
-	if _, ok := m.index.Files[query]; ok {
-		cat := m.getKeyCategory(query)
-		return []QueryMatch{{Key: query, Score: 1.0, Category: cat}}, nil
+	// Check for exact key or alias match first
+	resolution := m.resolveKeyLocked(query)
+	if resolution.Found {
+		cat := m.getKeyCategory(resolution.CanonicalKey)
+		return []QueryMatch{{Key: resolution.CanonicalKey, Score: 1.0, Category: cat}}, nil
 	}
 
 	// Tokenize the query
@@ -454,6 +530,7 @@ func (m *Manager) GetAllKeys() []string {
 }
 
 // GetFileMtime returns the modification time for a key.
+// Supports both canonical keys and aliases.
 func (m *Manager) GetFileMtime(key string) (int64, error) {
 	if err := m.EnsureIndex(); err != nil {
 		return 0, err
@@ -462,11 +539,12 @@ func (m *Manager) GetFileMtime(key string) (int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	entry, ok := m.index.Files[key]
-	if !ok {
+	resolution := m.resolveKeyLocked(key)
+	if !resolution.Found {
 		return 0, fmt.Errorf("key not found: %s", key)
 	}
 
+	entry := m.index.Files[resolution.CanonicalKey]
 	return entry.Mtime, nil
 }
 
@@ -558,6 +636,7 @@ func (m *Manager) GetStats() Stats {
 		Version:         m.index.System.Version,
 		TotalEntries:    m.index.System.TotalEntries,
 		TotalCategories: m.index.System.TotalCategories,
+		TotalAliases:    m.index.System.TotalAliases,
 	}
 }
 

@@ -43,6 +43,7 @@ func (s *Server) handleToolsCall(req *MCPRequest) *MCPResponse {
 }
 
 // handleGet implements p2kb_get - natural language or key-based content retrieval.
+// Supports canonical keys (p2kbPasm2Add), aliases (ADD), and natural language queries.
 func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 	var params struct {
 		Query string `json:"query"`
@@ -55,9 +56,10 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 		return s.errorResponse(id, -32602, "Missing required parameter", "query")
 	}
 
-	// Try exact key match first
-	if s.indexManager.KeyExists(params.Query) {
-		return s.getContentWithRelated(id, params.Query)
+	// Try exact key or alias match first
+	resolution := s.indexManager.ResolveKey(params.Query)
+	if resolution.Found {
+		return s.getContentWithRelated(id, resolution.CanonicalKey, resolution.ResolvedFrom)
 	}
 
 	// Use natural language matching
@@ -86,12 +88,12 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 
 	// If single high-confidence match, return content
 	if len(matches) == 1 || matches[0].Score > 0.9 {
-		return s.getContentWithRelated(id, matches[0].Key)
+		return s.getContentWithRelated(id, matches[0].Key, "")
 	}
 
 	// If top match is significantly better, return it
 	if len(matches) >= 2 && matches[0].Score > matches[1].Score+0.2 {
-		return s.getContentWithRelated(id, matches[0].Key)
+		return s.getContentWithRelated(id, matches[0].Key, "")
 	}
 
 	// Multiple matches - return suggestions
@@ -113,7 +115,8 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 }
 
 // getContentWithRelated fetches content and extracts related items.
-func (s *Server) getContentWithRelated(id interface{}, key string) *MCPResponse {
+// If resolvedFrom is non-empty, it indicates the original alias that was resolved.
+func (s *Server) getContentWithRelated(id interface{}, key string, resolvedFrom string) *MCPResponse {
 	content, err := s.getContent(key)
 	if err != nil {
 		return s.errorResponse(id, -32000, fmt.Sprintf("Failed to fetch content for '%s'", key),
@@ -134,6 +137,11 @@ func (s *Server) getContentWithRelated(id interface{}, key string) *MCPResponse 
 		"key":        key,
 		"content":    content,
 		"categories": categories,
+	}
+
+	// Include resolution metadata if an alias was used
+	if resolvedFrom != "" {
+		result["resolved_from"] = resolvedFrom
 	}
 
 	if len(related) > 0 {
@@ -496,11 +504,12 @@ func (s *Server) handleVersion(id interface{}) *MCPResponse {
 	obexMem, obexDisk, obexStale := s.obexManager.GetCacheStats()
 
 	return s.successResponse(id, map[string]interface{}{
-		"mcp_version":  s.version,
+		"mcp_version":   s.version,
 		"index_version": stats.Version,
 		"index": map[string]interface{}{
 			"total_entries":    stats.TotalEntries,
 			"total_categories": stats.TotalCategories,
+			"total_aliases":    stats.TotalAliases,
 			"is_cached":        indexStatus.IsCached,
 			"age_seconds":      indexStatus.AgeSeconds,
 			"needs_refresh":    indexStatus.NeedsRefresh,

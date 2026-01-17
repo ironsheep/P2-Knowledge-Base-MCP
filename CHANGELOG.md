@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-01-17
+
+### Added
+
+- **Alias Resolution**: Query using natural names instead of canonical keys
+  - Instruction mnemonics: `ADD`, `MOV`, `JMP` → `p2kbPasm2Add`, etc.
+  - Method names: `WAITMS`, `PINWRITE` → `p2kbSpin2Waitms`, etc.
+  - Pattern IDs: `motor_controller`, `state_machine`
+  - Symbol names: `_CLKFREQ`, `_CLKMODE`
+  - Case-insensitive matching (ADD, add, Add all work)
+
+- **Resolution Metadata**: Responses include `resolved_from` field when an alias was used
+  - Helps AI assistants understand the mapping between user query and canonical key
+
+- **Index Statistics**: `p2kb_version` now reports `total_aliases` count
+
+### Changed
+
+- `p2kb_get` now accepts aliases as the query parameter
+- `KeyExists`, `GetKeyPath`, `GetFileMtime` all support alias resolution
+- `MatchQuery` checks aliases before falling back to token-based matching
+
+### Technical
+
+- Requires index version 3.3.0+ with `aliases` section
+- Older indexes (without aliases) continue to work; alias lookups simply return no match
+
 ## [1.3.0] - 2026-01-15
 
 ### Added
@@ -258,7 +285,8 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
-[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.3...v1.3.0
 [1.2.3]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.2.1...v1.2.2

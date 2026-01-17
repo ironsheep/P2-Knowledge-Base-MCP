@@ -614,3 +614,354 @@ func TestGetStaleKeys(t *testing.T) {
 		t.Error("stale keys should include removed")
 	}
 }
+
+// Tests for alias resolution (v1.3.1+)
+
+func TestResolveKeyDirect(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+				"p2kbPasm2Mov": {Path: "pasm2/mov.yaml"},
+			},
+			Aliases: map[string][]string{
+				"ADD": {"p2kbPasm2Add"},
+				"MOV": {"p2kbPasm2Mov"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Direct canonical key lookup
+	resolution := m.ResolveKey("p2kbPasm2Add")
+	if !resolution.Found {
+		t.Error("ResolveKey should find canonical key")
+	}
+	if resolution.CanonicalKey != "p2kbPasm2Add" {
+		t.Errorf("CanonicalKey = %q, want p2kbPasm2Add", resolution.CanonicalKey)
+	}
+	if resolution.ResolvedFrom != "" {
+		t.Errorf("ResolvedFrom should be empty for direct match, got %q", resolution.ResolvedFrom)
+	}
+}
+
+func TestResolveKeyAliasUppercase(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: map[string][]string{
+				"ADD": {"p2kbPasm2Add"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Alias lookup with exact case
+	resolution := m.ResolveKey("ADD")
+	if !resolution.Found {
+		t.Error("ResolveKey should find uppercase alias")
+	}
+	if resolution.CanonicalKey != "p2kbPasm2Add" {
+		t.Errorf("CanonicalKey = %q, want p2kbPasm2Add", resolution.CanonicalKey)
+	}
+	if resolution.ResolvedFrom != "ADD" {
+		t.Errorf("ResolvedFrom = %q, want ADD", resolution.ResolvedFrom)
+	}
+}
+
+func TestResolveKeyAliasLowercase(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: map[string][]string{
+				"ADD": {"p2kbPasm2Add"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Case-insensitive alias lookup (lowercase input)
+	resolution := m.ResolveKey("add")
+	if !resolution.Found {
+		t.Error("ResolveKey should find alias case-insensitively")
+	}
+	if resolution.CanonicalKey != "p2kbPasm2Add" {
+		t.Errorf("CanonicalKey = %q, want p2kbPasm2Add", resolution.CanonicalKey)
+	}
+	if resolution.ResolvedFrom != "add" {
+		t.Errorf("ResolvedFrom = %q, want add", resolution.ResolvedFrom)
+	}
+}
+
+func TestResolveKeyAliasMixedCase(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbSpin2Waitms": {Path: "spin2/waitms.yaml"},
+			},
+			Aliases: map[string][]string{
+				"WAITMS": {"p2kbSpin2Waitms"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Mixed case input should resolve
+	resolution := m.ResolveKey("WaitMs")
+	if !resolution.Found {
+		t.Error("ResolveKey should find alias with mixed case input")
+	}
+	if resolution.CanonicalKey != "p2kbSpin2Waitms" {
+		t.Errorf("CanonicalKey = %q, want p2kbSpin2Waitms", resolution.CanonicalKey)
+	}
+}
+
+func TestResolveKeyNotFound(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: map[string][]string{
+				"ADD": {"p2kbPasm2Add"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Unknown key
+	resolution := m.ResolveKey("NOTAKEY")
+	if resolution.Found {
+		t.Error("ResolveKey should not find unknown key")
+	}
+	if resolution.CanonicalKey != "" {
+		t.Errorf("CanonicalKey should be empty for unknown key, got %q", resolution.CanonicalKey)
+	}
+}
+
+func TestResolveKeyNoAliases(t *testing.T) {
+	// Test with old-format index (no aliases)
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: nil, // No aliases section
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Direct key should still work
+	resolution := m.ResolveKey("p2kbPasm2Add")
+	if !resolution.Found {
+		t.Error("ResolveKey should find canonical key even without aliases")
+	}
+
+	// Alias lookup should gracefully fail
+	resolution = m.ResolveKey("ADD")
+	if resolution.Found {
+		t.Error("ResolveKey should not find alias when aliases section is nil")
+	}
+}
+
+func TestKeyExistsWithAlias(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: map[string][]string{
+				"ADD": {"p2kbPasm2Add"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Canonical key
+	if !m.KeyExists("p2kbPasm2Add") {
+		t.Error("KeyExists should return true for canonical key")
+	}
+
+	// Alias
+	if !m.KeyExists("ADD") {
+		t.Error("KeyExists should return true for alias")
+	}
+
+	// Case-insensitive alias
+	if !m.KeyExists("add") {
+		t.Error("KeyExists should return true for lowercase alias")
+	}
+
+	// Unknown
+	if m.KeyExists("NOTAKEY") {
+		t.Error("KeyExists should return false for unknown key")
+	}
+}
+
+func TestGetKeyPathWithAlias(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml", Mtime: 1234567890},
+			},
+			Aliases: map[string][]string{
+				"ADD": {"p2kbPasm2Add"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// Via alias
+	path, mtime, err := m.GetKeyPath("ADD")
+	if err != nil {
+		t.Fatalf("GetKeyPath via alias failed: %v", err)
+	}
+	if path != "pasm2/add.yaml" {
+		t.Errorf("path = %q, want pasm2/add.yaml", path)
+	}
+	if mtime != 1234567890 {
+		t.Errorf("mtime = %d, want 1234567890", mtime)
+	}
+
+	// Via lowercase alias
+	path, _, err = m.GetKeyPath("add")
+	if err != nil {
+		t.Fatalf("GetKeyPath via lowercase alias failed: %v", err)
+	}
+	if path != "pasm2/add.yaml" {
+		t.Errorf("path = %q, want pasm2/add.yaml", path)
+	}
+}
+
+func TestGetFileMtimeWithAlias(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Mov": {Path: "pasm2/mov.yaml", Mtime: 9876543210},
+			},
+			Aliases: map[string][]string{
+				"MOV": {"p2kbPasm2Mov"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	mtime, err := m.GetFileMtime("MOV")
+	if err != nil {
+		t.Fatalf("GetFileMtime via alias failed: %v", err)
+	}
+	if mtime != 9876543210 {
+		t.Errorf("mtime = %d, want 9876543210", mtime)
+	}
+}
+
+func TestMatchQueryWithAlias(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add":      {Path: "pasm2/add.yaml"},
+				"p2kbSpin2Waitms":   {Path: "spin2/waitms.yaml"},
+				"p2kbSpin2Pinwrite": {Path: "spin2/pinwrite.yaml"},
+			},
+			Categories: map[string][]string{
+				"pasm2_math": {"p2kbPasm2Add"},
+				"spin2_time": {"p2kbSpin2Waitms"},
+			},
+			Aliases: map[string][]string{
+				"ADD":      {"p2kbPasm2Add"},
+				"WAITMS":   {"p2kbSpin2Waitms"},
+				"PINWRITE": {"p2kbSpin2Pinwrite"},
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	tests := []struct {
+		query     string
+		expectKey string
+	}{
+		{"ADD", "p2kbPasm2Add"},
+		{"add", "p2kbPasm2Add"},
+		{"WAITMS", "p2kbSpin2Waitms"},
+		{"waitms", "p2kbSpin2Waitms"},
+		{"PINWRITE", "p2kbSpin2Pinwrite"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			matches, err := m.MatchQuery(tt.query)
+			if err != nil {
+				t.Fatalf("MatchQuery(%q) error: %v", tt.query, err)
+			}
+			if len(matches) == 0 {
+				t.Fatalf("MatchQuery(%q) returned no matches", tt.query)
+			}
+			if matches[0].Key != tt.expectKey {
+				t.Errorf("MatchQuery(%q) top match = %q, want %q", tt.query, matches[0].Key, tt.expectKey)
+			}
+			if matches[0].Score != 1.0 {
+				t.Errorf("MatchQuery(%q) score = %f, want 1.0 for alias match", tt.query, matches[0].Score)
+			}
+		})
+	}
+}
+
+func TestGetStatsWithAliases(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			System: SystemInfo{
+				Version:         "3.3.0",
+				TotalEntries:    970,
+				TotalCategories: 47,
+				TotalAliases:    933,
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	stats := m.GetStats()
+	if stats.TotalAliases != 933 {
+		t.Errorf("TotalAliases = %d, want 933", stats.TotalAliases)
+	}
+}
+
+func TestResolveKeyAliasConflict(t *testing.T) {
+	// Test that first entry wins for conflicting aliases (e.g., ABS exists in both PASM2 and Spin2)
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Abs": {Path: "pasm2/abs.yaml"},
+				"p2kbSpin2Abs": {Path: "spin2/abs.yaml"},
+			},
+			Aliases: map[string][]string{
+				"ABS": {"p2kbPasm2Abs", "p2kbSpin2Abs"}, // PASM2 first
+			},
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	// First entry (PASM2) should win
+	resolution := m.ResolveKey("ABS")
+	if !resolution.Found {
+		t.Error("ResolveKey should find conflicting alias")
+	}
+	if resolution.CanonicalKey != "p2kbPasm2Abs" {
+		t.Errorf("CanonicalKey = %q, want p2kbPasm2Abs (first entry wins)", resolution.CanonicalKey)
+	}
+}
