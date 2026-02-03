@@ -32,14 +32,43 @@ func TestNormalizeObjectID(t *testing.T) {
 		{"2811", "2811"},
 		{"OB2811", "2811"},
 		{"ob2811", "2811"},
+		{"Ob2811", "2811"},     // Mixed case - first letter uppercase
+		{"oB2811", "2811"},     // Mixed case - second letter uppercase
 		{" 2811 ", "2811"},
-		{"OB 2811", "2811"},
+		{"OB 2811", "2811"},    // Space after OB prefix (trimmed from result)
+		{" OB2811 ", "2811"},   // Spaces around the whole thing
 	}
 
 	for _, tt := range tests {
 		result := normalizeObjectID(tt.input)
 		if result != tt.expected {
 			t.Errorf("normalizeObjectID(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestObjectExistsCaseInsensitive(t *testing.T) {
+	m := &Manager{
+		objectIDs: []string{"2811", "2850", "3001"},
+		objects:   make(map[string]*OBEXObject),
+	}
+
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"2811", true},
+		{"2850", true},
+		{"3001", true},
+		{"9999", false},
+		// Note: IDs are numeric strings, so case doesn't apply directly,
+		// but the comparison should still be case-insensitive for any future string IDs
+	}
+
+	for _, tt := range tests {
+		result := m.objectExists(tt.input)
+		if result != tt.expected {
+			t.Errorf("objectExists(%q) = %v, want %v", tt.input, result, tt.expected)
 		}
 	}
 }
@@ -599,5 +628,70 @@ func TestDownloadResult(t *testing.T) {
 	}
 	if result.TotalSize != 1234 {
 		t.Errorf("TotalSize = %d, want 1234", result.TotalSize)
+	}
+}
+
+// Tests for refresh-on-error feature (v1.3.3+)
+
+func TestOBEXTryErrorRefreshCooldown(t *testing.T) {
+	m := &Manager{
+		objectIDs:        []string{"2811", "2850"},
+		objects:          make(map[string]*OBEXObject),
+		lastRefresh:      time.Now(),
+		ttl:              DefaultOBEXTTL,
+		lastErrorRefresh: time.Now(), // Recent error refresh - should be in cooldown
+		httpClient:       &http.Client{Timeout: 30 * time.Second},
+	}
+
+	// Should return false because we're in cooldown
+	if m.tryErrorRefresh() {
+		t.Error("tryErrorRefresh should return false when in cooldown")
+	}
+}
+
+func TestOBEXTryErrorRefreshCooldownExpired(t *testing.T) {
+	m := &Manager{
+		objectIDs:        []string{"2811", "2850"},
+		objects:          make(map[string]*OBEXObject),
+		cacheDir:         "/nonexistent/path", // Ensure refresh will fail
+		lastRefresh:      time.Now(),
+		ttl:              DefaultOBEXTTL,
+		lastErrorRefresh: time.Now().Add(-10 * time.Minute), // Old error refresh - cooldown expired
+		httpClient:       &http.Client{Timeout: 1 * time.Second},
+	}
+
+	// Should attempt refresh (will fail due to invalid cache dir, but that's OK)
+	// After this, lastErrorRefresh should be updated
+	originalTime := m.lastErrorRefresh
+	_ = m.tryErrorRefresh()
+
+	// Verify cooldown timestamp was updated (whether refresh succeeded or failed)
+	if !m.lastErrorRefresh.After(originalTime) {
+		t.Error("tryErrorRefresh should update lastErrorRefresh timestamp")
+	}
+}
+
+func TestGetObjectDoesNotTriggerRefreshInCooldown(t *testing.T) {
+	m := &Manager{
+		objectIDs:        []string{"2811", "2850"},
+		objects:          make(map[string]*OBEXObject),
+		cacheDir:         "/nonexistent/path",
+		lastRefresh:      time.Now(),
+		ttl:              DefaultOBEXTTL,
+		lastErrorRefresh: time.Now(), // Recent - in cooldown
+		httpClient:       &http.Client{Timeout: 1 * time.Second},
+	}
+
+	originalTime := m.lastErrorRefresh
+
+	// Try to get an object that doesn't exist
+	_, err := m.GetObject("9999")
+	if err == nil {
+		t.Error("Should return error for nonexistent object")
+	}
+
+	// Verify that no refresh was attempted (timestamp unchanged)
+	if m.lastErrorRefresh != originalTime {
+		t.Error("GetObject should NOT trigger error refresh when in cooldown")
 	}
 }

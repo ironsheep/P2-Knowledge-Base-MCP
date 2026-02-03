@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-02-03
+
+### Added
+
+- **Refresh-on-error**: Automatic index refresh when key lookup fails
+  - If a key is not found and the 5-minute cooldown has passed, automatically refreshes the index and retries
+  - Helps when the remote index is updated but local cache hasn't expired yet
+  - Cooldown prevents refresh storms when keys are genuinely not found
+  - Works for both KB index (`ResolveKey`) and OBEX index (`GetObject`)
+
+### Changed
+
+- **Case-insensitive lookups**: All search and lookup operations are now fully case-insensitive
+  - Canonical key lookups: `p2kbpasm2mov`, `P2KBPASM2MOV`, `p2kbPasm2Mov` all resolve to the same key
+  - Category lookups: `PASM2_DATA`, `pasm2_data`, `Pasm2_Data` all work
+  - OBEX object ID prefix: `OB2811`, `ob2811`, `Ob2811`, `oB2811` all normalize correctly
+  - OBEX object existence checks are now case-insensitive
+
 ## [1.3.2] - 2026-01-17
 
 ### Changed

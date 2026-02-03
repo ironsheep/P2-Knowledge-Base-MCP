@@ -23,6 +23,10 @@ const (
 
 	// DefaultIndexTTL is the default time-to-live for the cached index.
 	DefaultIndexTTL = 24 * time.Hour
+
+	// ErrorRefreshCooldown is the minimum time between refresh-on-error attempts.
+	// This prevents excessive refresh attempts when keys are genuinely not found.
+	ErrorRefreshCooldown = 5 * time.Minute
 )
 
 // Index represents the P2KB index structure.
@@ -69,13 +73,14 @@ type IndexStatus struct {
 
 // Manager handles index operations.
 type Manager struct {
-	mu          sync.RWMutex
-	fetchMu     sync.Mutex // Prevents concurrent fetches, separate from data lock
-	index       *Index
-	indexPath   string
-	metaPath    string
-	lastRefresh time.Time
-	ttl         time.Duration
+	mu               sync.RWMutex
+	fetchMu          sync.Mutex // Prevents concurrent fetches, separate from data lock
+	index            *Index
+	indexPath        string
+	metaPath         string
+	lastRefresh      time.Time
+	ttl              time.Duration
+	lastErrorRefresh time.Time // Tracks last refresh-on-error attempt to prevent refresh storms
 }
 
 // NewManager creates a new index manager.
@@ -178,23 +183,72 @@ type KeyResolution struct {
 // Returns the canonical key if found, along with resolution metadata.
 // Case-insensitive alias lookup: tries uppercase first (PASM2 mnemonics),
 // then lowercase (method names, pattern IDs).
+// If key is not found and cooldown has passed, attempts one refresh before giving up.
 func (m *Manager) ResolveKey(key string) KeyResolution {
 	if err := m.EnsureIndex(); err != nil {
 		return KeyResolution{}
 	}
 
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	resolution := m.resolveKeyLocked(key)
+	m.mu.RUnlock()
 
-	return m.resolveKeyLocked(key)
+	if resolution.Found {
+		return resolution
+	}
+
+	// Key not found - try refresh-on-error if cooldown has passed
+	if m.tryErrorRefresh() {
+		// Retry lookup after refresh
+		m.mu.RLock()
+		resolution = m.resolveKeyLocked(key)
+		m.mu.RUnlock()
+	}
+
+	return resolution
+}
+
+// tryErrorRefresh attempts to refresh the index if the error cooldown has passed.
+// Returns true if a refresh was attempted, false if still in cooldown.
+// This method is safe for concurrent access.
+func (m *Manager) tryErrorRefresh() bool {
+	m.mu.RLock()
+	lastError := m.lastErrorRefresh
+	m.mu.RUnlock()
+
+	if time.Since(lastError) < ErrorRefreshCooldown {
+		return false // Still in cooldown
+	}
+
+	// Attempt refresh
+	if err := m.Refresh(); err != nil {
+		// Refresh failed, but still update timestamp to prevent retry storm
+		m.mu.Lock()
+		m.lastErrorRefresh = time.Now()
+		m.mu.Unlock()
+		return false
+	}
+
+	// Refresh succeeded, update timestamp
+	m.mu.Lock()
+	m.lastErrorRefresh = time.Now()
+	m.mu.Unlock()
+	return true
 }
 
 // resolveKeyLocked performs key resolution while holding the read lock.
 // This is an internal helper for use by other methods that already hold the lock.
 func (m *Manager) resolveKeyLocked(key string) KeyResolution {
-	// Direct lookup first
+	// Direct lookup first (case-insensitive)
 	if _, ok := m.index.Files[key]; ok {
 		return KeyResolution{CanonicalKey: key, Found: true}
+	}
+	// Try case-insensitive match on canonical keys
+	keyLower := strings.ToLower(key)
+	for canonicalKey := range m.index.Files {
+		if strings.ToLower(canonicalKey) == keyLower {
+			return KeyResolution{CanonicalKey: canonicalKey, Found: true}
+		}
 	}
 
 	// Try alias lookup (case-insensitive)
@@ -582,6 +636,7 @@ func (m *Manager) GetCategoriesWithCounts() map[string]int {
 }
 
 // GetCategoryKeys returns all keys in a category.
+// Category lookup is case-insensitive.
 func (m *Manager) GetCategoryKeys(category string) ([]string, error) {
 	if err := m.EnsureIndex(); err != nil {
 		return nil, err
@@ -590,7 +645,19 @@ func (m *Manager) GetCategoryKeys(category string) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Try exact match first
 	keys, ok := m.index.Categories[category]
+	if !ok {
+		// Try case-insensitive match
+		categoryLower := strings.ToLower(category)
+		for cat, catKeys := range m.index.Categories {
+			if strings.ToLower(cat) == categoryLower {
+				keys = catKeys
+				ok = true
+				break
+			}
+		}
+	}
 	if !ok {
 		return nil, fmt.Errorf("category not found: %s", category)
 	}

@@ -34,6 +34,10 @@ const (
 
 	// DefaultOBEXTTL is the default time-to-live for the OBEX index.
 	DefaultOBEXTTL = 24 * time.Hour
+
+	// ErrorRefreshCooldown is the minimum time between refresh-on-error attempts.
+	// This prevents excessive refresh attempts when objects are genuinely not found.
+	ErrorRefreshCooldown = 5 * time.Minute
 )
 
 // ObjectMetadata represents the object_metadata section of an OBEX YAML file.
@@ -110,14 +114,15 @@ type DownloadResult struct {
 
 // Manager handles OBEX operations.
 type Manager struct {
-	mu          sync.RWMutex
-	fetchMu     sync.Mutex                 // Prevents concurrent index fetches, separate from data lock
-	cacheDir    string
-	objectIDs   []string                   // List of all object IDs
-	objects     map[string]*OBEXObject     // Cached objects by ID
-	lastRefresh time.Time
-	ttl         time.Duration
-	httpClient  *http.Client
+	mu               sync.RWMutex
+	fetchMu          sync.Mutex             // Prevents concurrent index fetches, separate from data lock
+	cacheDir         string
+	objectIDs        []string               // List of all object IDs
+	objects          map[string]*OBEXObject // Cached objects by ID
+	lastRefresh      time.Time
+	ttl              time.Duration
+	httpClient       *http.Client
+	lastErrorRefresh time.Time // Tracks last refresh-on-error attempt to prevent refresh storms
 }
 
 // NewManager creates a new OBEX manager.
@@ -196,6 +201,7 @@ func (m *Manager) GetObjectIDs() []string {
 }
 
 // GetObject retrieves an OBEX object by ID.
+// If object is not found and cooldown has passed, attempts one refresh before giving up.
 func (m *Manager) GetObject(objectID string) (*OBEXObject, error) {
 	if err := m.EnsureIndex(); err != nil {
 		return nil, err
@@ -213,11 +219,46 @@ func (m *Manager) GetObject(objectID string) (*OBEXObject, error) {
 
 	// Check if ID exists in index
 	if !m.objectExists(objectID) {
+		// Object not found - try refresh-on-error if cooldown has passed
+		if m.tryErrorRefresh() {
+			// Retry lookup after refresh
+			if m.objectExists(objectID) {
+				return m.fetchObject(objectID)
+			}
+		}
 		return nil, fmt.Errorf("OBEX object not found: %s", objectID)
 	}
 
 	// Fetch from remote or cache
 	return m.fetchObject(objectID)
+}
+
+// tryErrorRefresh attempts to refresh the index if the error cooldown has passed.
+// Returns true if a refresh was attempted, false if still in cooldown.
+// This method is safe for concurrent access.
+func (m *Manager) tryErrorRefresh() bool {
+	m.mu.RLock()
+	lastError := m.lastErrorRefresh
+	m.mu.RUnlock()
+
+	if time.Since(lastError) < ErrorRefreshCooldown {
+		return false // Still in cooldown
+	}
+
+	// Attempt refresh
+	if err := m.Refresh(); err != nil {
+		// Refresh failed, but still update timestamp to prevent retry storm
+		m.mu.Lock()
+		m.lastErrorRefresh = time.Now()
+		m.mu.Unlock()
+		return false
+	}
+
+	// Refresh succeeded, update timestamp
+	m.mu.Lock()
+	m.lastErrorRefresh = time.Now()
+	m.mu.Unlock()
+	return true
 }
 
 // Search searches OBEX objects by term.
@@ -670,8 +711,9 @@ func (m *Manager) objectExists(objectID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	objectIDLower := strings.ToLower(objectID)
 	for _, id := range m.objectIDs {
-		if id == objectID {
+		if strings.ToLower(id) == objectIDLower {
 			return true
 		}
 	}
@@ -887,9 +929,12 @@ func (m *Manager) saveObjectToCache(objectID string, data []byte) {
 }
 
 func normalizeObjectID(objectID string) string {
-	// Remove "OB" prefix if present
-	objectID = strings.TrimPrefix(objectID, "OB")
-	objectID = strings.TrimPrefix(objectID, "ob")
+	// Remove "OB" prefix if present (case-insensitive)
+	objectID = strings.TrimSpace(objectID)
+	upper := strings.ToUpper(objectID)
+	if strings.HasPrefix(upper, "OB") {
+		objectID = objectID[2:]
+	}
 	return strings.TrimSpace(objectID)
 }
 

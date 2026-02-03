@@ -734,8 +734,9 @@ func TestResolveKeyNotFound(t *testing.T) {
 				"ADD": {"p2kbPasm2Add"},
 			},
 		},
-		lastRefresh: time.Now(),
-		ttl:         DefaultIndexTTL,
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now(), // Prevent refresh-on-error during test
 	}
 
 	// Unknown key
@@ -757,8 +758,9 @@ func TestResolveKeyNoAliases(t *testing.T) {
 			},
 			Aliases: nil, // No aliases section
 		},
-		lastRefresh: time.Now(),
-		ttl:         DefaultIndexTTL,
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now(), // Prevent refresh-on-error during test
 	}
 
 	// Direct key should still work
@@ -963,5 +965,192 @@ func TestResolveKeyAliasConflict(t *testing.T) {
 	}
 	if resolution.CanonicalKey != "p2kbPasm2Abs" {
 		t.Errorf("CanonicalKey = %q, want p2kbPasm2Abs (first entry wins)", resolution.CanonicalKey)
+	}
+}
+
+// Test case-insensitive canonical key lookups (v1.3.3+)
+func TestResolveKeyCaseInsensitiveCanonical(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Mov": {Path: "pasm2/mov.yaml"},
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: nil, // No aliases to ensure we're testing canonical key lookup
+		},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"p2kbPasm2Mov", "p2kbPasm2Mov"},     // Exact case
+		{"P2KBPASM2MOV", "p2kbPasm2Mov"},     // All uppercase
+		{"p2kbpasm2mov", "p2kbPasm2Mov"},     // All lowercase
+		{"P2kbPasm2Mov", "p2kbPasm2Mov"},     // Mixed case
+		{"p2kbPASM2mov", "p2kbPasm2Mov"},     // Another mixed case
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			resolution := m.ResolveKey(tt.input)
+			if !resolution.Found {
+				t.Errorf("ResolveKey(%q) should find key case-insensitively", tt.input)
+				return
+			}
+			if resolution.CanonicalKey != tt.expected {
+				t.Errorf("ResolveKey(%q) = %q, want %q", tt.input, resolution.CanonicalKey, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetCategoryKeysCaseInsensitive(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Mov": {Path: "pasm2/mov.yaml"},
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Categories: map[string][]string{
+				"pasm2_data": {"p2kbPasm2Mov"},
+				"pasm2_math": {"p2kbPasm2Add"},
+			},
+		},
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now(), // Prevent refresh-on-error during test
+	}
+
+	tests := []struct {
+		category string
+		wantLen  int
+	}{
+		{"pasm2_data", 1},      // Exact case
+		{"PASM2_DATA", 1},      // All uppercase
+		{"Pasm2_Data", 1},      // Mixed case
+		{"PASM2_MATH", 1},      // Another category
+		{"nonexistent", 0},     // Should fail
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.category, func(t *testing.T) {
+			keys, err := m.GetCategoryKeys(tt.category)
+			if tt.wantLen == 0 {
+				if err == nil {
+					t.Errorf("GetCategoryKeys(%q) should return error for nonexistent", tt.category)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("GetCategoryKeys(%q) error: %v", tt.category, err)
+				return
+			}
+			if len(keys) != tt.wantLen {
+				t.Errorf("GetCategoryKeys(%q) returned %d keys, want %d", tt.category, len(keys), tt.wantLen)
+			}
+		})
+	}
+}
+
+// Tests for refresh-on-error feature (v1.3.3+)
+
+func TestTryErrorRefreshCooldown(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+		},
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now(), // Recent error refresh - should be in cooldown
+	}
+
+	// Should return false because we're in cooldown
+	if m.tryErrorRefresh() {
+		t.Error("tryErrorRefresh should return false when in cooldown")
+	}
+}
+
+func TestTryErrorRefreshCooldownExpired(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+		},
+		indexPath:        "/nonexistent/path/index.json", // Ensure refresh will fail (no network in tests)
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now().Add(-10 * time.Minute), // Old error refresh - cooldown expired
+	}
+
+	// Should attempt refresh (will fail due to no network, but that's OK)
+	// After this, lastErrorRefresh should be updated
+	originalTime := m.lastErrorRefresh
+	_ = m.tryErrorRefresh()
+
+	// Verify cooldown timestamp was updated (whether refresh succeeded or failed)
+	if !m.lastErrorRefresh.After(originalTime) {
+		t.Error("tryErrorRefresh should update lastErrorRefresh timestamp")
+	}
+}
+
+func TestResolveKeyTriggersErrorRefresh(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: nil,
+		},
+		indexPath:        "/nonexistent/path/index.json", // Ensure refresh will fail
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now().Add(-10 * time.Minute), // Cooldown expired
+	}
+
+	originalTime := m.lastErrorRefresh
+
+	// Try to resolve a key that doesn't exist
+	resolution := m.ResolveKey("NONEXISTENT")
+	if resolution.Found {
+		t.Error("Should not find nonexistent key")
+	}
+
+	// Verify that an error refresh was attempted (timestamp updated)
+	if !m.lastErrorRefresh.After(originalTime) {
+		t.Error("ResolveKey should trigger error refresh when key not found and cooldown expired")
+	}
+}
+
+func TestResolveKeyDoesNotTriggerRefreshInCooldown(t *testing.T) {
+	m := &Manager{
+		index: &Index{
+			Files: map[string]FileEntry{
+				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
+			},
+			Aliases: nil,
+		},
+		indexPath:        "/nonexistent/path/index.json",
+		lastRefresh:      time.Now(),
+		ttl:              DefaultIndexTTL,
+		lastErrorRefresh: time.Now(), // Recent - in cooldown
+	}
+
+	originalTime := m.lastErrorRefresh
+
+	// Try to resolve a key that doesn't exist
+	resolution := m.ResolveKey("NONEXISTENT")
+	if resolution.Found {
+		t.Error("Should not find nonexistent key")
+	}
+
+	// Verify that no refresh was attempted (timestamp unchanged)
+	if m.lastErrorRefresh != originalTime {
+		t.Error("ResolveKey should NOT trigger error refresh when in cooldown")
 	}
 }
