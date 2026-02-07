@@ -1,168 +1,154 @@
 # Installation Guide
 
-## Quick Start
+This guide walks you through installing the P2 Knowledge Base MCP server on your computer and connecting it to Claude. Choose your platform below and follow the steps.
 
-### Container-Tools Package (Recommended)
+> **Advanced users:** If you manage multiple MCP servers and prefer the container-tools framework, see [INSTALL-ADVANCED.md](INSTALL-ADVANCED.md).
 
-The container-tools package installs P2KB MCP alongside other MCPs in `/opt/container-tools/`:
+## Prerequisites
 
-1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
-2. Download the container-tools package: `container-tools-p2kb-mcp-vX.X.X.tar.gz`
-3. Extract and install:
+You need one of the following Claude clients already installed:
 
-```bash
-# Extract the package
-tar -xzf container-tools-p2kb-mcp-v*.tar.gz
-cd p2kb-mcp
+- **Claude Desktop** — [Download here](https://claude.ai/download)
+- **Claude Code** (CLI) — [Install instructions](https://docs.anthropic.com/en/docs/claude-code/overview)
 
-# Install (requires sudo for /opt)
-sudo ./install.sh
+---
 
-# Verify installation
-/opt/container-tools/bin/p2kb-mcp --version
-```
+## Step 1: Download
 
-### Installer Options
+Go to the [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases) page and download the package for your platform:
 
-The installer supports several options:
-
-```bash
-# Default install to /opt/container-tools
-sudo ./install.sh
-
-# Install to custom location
-./install.sh --target ~/my-container-tools
-
-# Uninstall (or rollback to prior version if available)
-sudo ./install.sh --uninstall
-
-# Show help
-./install.sh --help
-```
-
-### What the Installer Does
-
-The installer automatically:
-
-1. **Creates directory structure** (if first-time install):
-   - `/opt/container-tools/bin/` - Symlinks to MCP launchers
-   - `/opt/container-tools/etc/` - Shared configuration
-
-2. **Installs the MCP**:
-   - Copies all platform binaries with universal launcher
-   - Creates symlink at `/opt/container-tools/bin/p2kb-mcp`
-
-3. **Sets up hooks** (for Claude Code integration):
-   - Installs `hooks-dispatcher.sh` (if not present)
-   - Installs `hooks.d/app-start/p2kb-mcp.sh`
-
-4. **Updates mcp.json**:
-   - Merges entry (preserves other MCPs)
-   - Configures hooks dispatcher
-
-5. **Handles updates intelligently**:
-   - Skips install if binary is identical (MD5 comparison)
-   - Backs up previous installation to `backup/prior/`
-   - Backs up mcp.json to `backup/mcp.json-prior`
-
-### Installation Layout
-
-```
-/opt/container-tools/
-├── bin/
-│   └── p2kb-mcp -> ../p2kb-mcp/bin/p2kb-mcp
-├── etc/
-│   ├── mcp.json                    # Shared MCP configuration
-│   ├── hooks-dispatcher.sh         # Hook dispatcher script
-│   └── hooks.d/
-│       ├── app-start/
-│       │   └── p2kb-mcp.sh         # App start hook
-│       ├── compact-start/
-│       └── compact-end/
-└── p2kb-mcp/
-    ├── bin/
-    │   ├── p2kb-mcp                # Universal launcher
-    │   └── platforms/              # Platform binaries
-    ├── backup/                     # Created during updates
-    │   ├── mcp.json-prior          # Backup of mcp.json
-    │   └── prior/                  # Prior installation (for rollback)
-    ├── README.md
-    ├── CHANGELOG.md
-    ├── LICENSE
-    └── VERSION_MANIFEST.txt
-```
-
-### Standalone Package
-
-For single-platform installations without container-tools:
-
-1. Go to [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases)
-2. Download the appropriate package for your platform:
-
-| Platform | File Pattern |
+| Platform | Download File |
 |----------|--------------|
-| Linux AMD64 | `p2kb-mcp-vX.X.X-linux-amd64.tar.gz` |
-| Linux ARM64 | `p2kb-mcp-vX.X.X-linux-arm64.tar.gz` |
-| macOS Intel | `p2kb-mcp-vX.X.X-darwin-amd64.tar.gz` |
-| macOS Apple Silicon | `p2kb-mcp-vX.X.X-darwin-arm64.tar.gz` |
-| Windows AMD64 | `p2kb-mcp-vX.X.X-windows-amd64.zip` |
-| Windows ARM64 | `p2kb-mcp-vX.X.X-windows-arm64.zip` |
+| **Windows** (64-bit) | `p2kb-mcp-vX.X.X-windows-amd64.zip` |
+| **Windows** (ARM) | `p2kb-mcp-vX.X.X-windows-arm64.zip` |
+| **macOS** (Apple Silicon — M1/M2/M3/M4) | `p2kb-mcp-vX.X.X-darwin-arm64.tar.gz` |
+| **macOS** (Intel) | `p2kb-mcp-vX.X.X-darwin-amd64.tar.gz` |
+| **Linux** (64-bit) | `p2kb-mcp-vX.X.X-linux-amd64.tar.gz` |
+| **Linux** (ARM64) | `p2kb-mcp-vX.X.X-linux-arm64.tar.gz` |
 
-3. Extract and install:
+**Not sure which to download?**
+
+- **Windows:** Settings → System → About → look for "System type" (64-bit or ARM-based)
+- **macOS:** Apple menu → About This Mac — Apple M1/M2/M3/M4 means **Apple Silicon**; otherwise choose **Intel**
+- **Linux:** Run `uname -m` in a terminal — `x86_64` means 64-bit, `aarch64` means ARM64
+
+---
+
+## Step 2: Install
+
+### Windows
+
+1. **Extract the zip file.** Right-click the downloaded `.zip` file and select **Extract All...**
+
+2. **Move to Program Files.** Move the extracted `p2kb-mcp` folder to `C:\Program Files\`:
+   - Open File Explorer and navigate to `C:\Program Files\`
+   - Drag the `p2kb-mcp` folder there
+   - Click **Continue** when prompted for Administrator permission
+
+3. **Verify the installation.** Open PowerShell or Command Prompt and run:
+
+   ```powershell
+   & "C:\Program Files\p2kb-mcp\bin\p2kb-mcp.exe" --version
+   ```
+
+   You should see a version number printed.
+
+### macOS
+
+1. **Open Terminal** (Applications → Utilities → Terminal).
+
+2. **Extract the download** (adjust the filename to match what you downloaded):
+
+   ```bash
+   cd ~/Downloads
+   tar -xzf p2kb-mcp-v*-darwin-*.tar.gz
+   ```
+
+3. **Move to /opt:**
+
+   ```bash
+   sudo mv p2kb-mcp /opt/p2kb-mcp
+   ```
+
+4. **Remove the macOS quarantine flag.** macOS blocks unsigned downloaded programs by default. Run this to allow the binary to execute:
+
+   ```bash
+   sudo xattr -rd com.apple.quarantine /opt/p2kb-mcp
+   ```
+
+5. **Verify the installation:**
+
+   ```bash
+   /opt/p2kb-mcp/bin/p2kb-mcp --version
+   ```
+
+   You should see a version number printed.
+
+### Linux
+
+1. **Extract the download** (adjust the filename to match what you downloaded):
+
+   ```bash
+   cd ~/Downloads
+   tar -xzf p2kb-mcp-v*-linux-*.tar.gz
+   ```
+
+2. **Move to /opt:**
+
+   ```bash
+   sudo mv p2kb-mcp /opt/p2kb-mcp
+   ```
+
+3. **Verify the installation:**
+
+   ```bash
+   /opt/p2kb-mcp/bin/p2kb-mcp --version
+   ```
+
+   You should see a version number printed.
+
+---
+
+## Step 3: Connect to Claude
+
+You only need to do **one** of the options below, depending on which Claude client you use.
+
+### Option A: Claude Code (Command Line)
+
+If you use Claude Code in the terminal, run this single command to register the MCP server. You do **not** need to be inside Claude Code to run this — just open any terminal.
+
+**macOS / Linux:**
 
 ```bash
-# Linux/macOS
-tar -xzf p2kb-mcp-v*-linux-amd64.tar.gz
-sudo mv p2kb-mcp /opt/
-
-# Verify
-/opt/p2kb-mcp/bin/p2kb-mcp --version
+claude mcp add -s user p2kb-mcp -- /opt/p2kb-mcp/bin/p2kb-mcp --mode stdio
 ```
+
+**Windows (PowerShell):**
 
 ```powershell
-# Windows - extract zip to desired location
-# e.g., C:\Program Files\p2kb-mcp\
+claude mcp add -s user p2kb-mcp -- "C:\Program Files\p2kb-mcp\bin\p2kb-mcp.exe" --mode stdio
 ```
 
-**Standalone package layout:**
-```
-p2kb-mcp/
-├── bin/
-│   └── p2kb-mcp[.exe]
-├── .cache/              # Created at runtime (hidden folder)
-├── README.md
-├── CHANGELOG.md
-└── LICENSE
-```
+The `-s user` flag makes the MCP available in all your Claude Code sessions, not just one project.
 
-### Build from Source
+**That's it.** Next time you start Claude Code, the P2 Knowledge Base tools will be available.
 
-```bash
-git clone https://github.com/ironsheep/P2-Knowledge-Base-MCP.git
-cd P2-Knowledge-Base-MCP
-make build
-sudo make install
-```
+### Option B: Claude Desktop
 
-## MCP Client Configuration
+Edit your Claude Desktop configuration file to add the MCP server.
 
-### Claude Desktop
+**1. Find your config file:**
 
-Add to `~/.config/claude/claude_desktop_config.json` (Linux/macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+| Platform | Config File Location |
+|----------|---------------------|
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux | `~/.config/claude/claude_desktop_config.json` |
 
-**Container-tools installation:**
-```json
-{
-  "mcpServers": {
-    "p2kb-mcp": {
-      "command": "/opt/container-tools/bin/p2kb-mcp",
-      "args": ["--mode", "stdio"]
-    }
-  }
-}
-```
+**2. Add the p2kb-mcp entry.** Open the config file in a text editor and add (or merge into) the `mcpServers` section:
 
-**Standalone installation:**
+**macOS / Linux:**
+
 ```json
 {
   "mcpServers": {
@@ -174,158 +160,140 @@ Add to `~/.config/claude/claude_desktop_config.json` (Linux/macOS) or `%APPDATA%
 }
 ```
 
-### Claude Code CLI
+**Windows:**
 
-Add to your MCP configuration using the path where you installed the binary.
+```json
+{
+  "mcpServers": {
+    "p2kb-mcp": {
+      "command": "C:\\Program Files\\p2kb-mcp\\bin\\p2kb-mcp.exe",
+      "args": ["--mode", "stdio"]
+    }
+  }
+}
+```
+
+> **Note:** If you already have other MCP servers in the file, add just the `"p2kb-mcp": { ... }` block inside the existing `"mcpServers"` object. Don't replace the whole file.
+
+**3. Restart Claude Desktop** after saving the config file.
+
+---
 
 ## Verification
 
-Test that the MCP server is working:
+Once connected, you can verify the MCP is working by asking Claude:
+
+> *"What P2 Knowledge Base tools do you have available?"*
+
+Claude should list the P2KB tools (PASM2 instruction lookup, Spin2 method lookup, OBEX search, etc.).
+
+You can also test from the command line:
 
 ```bash
-# Check version
-/opt/container-tools/bin/p2kb-mcp --version
-
-# Test MCP protocol
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | /opt/container-tools/bin/p2kb-mcp
+# macOS/Linux
+/opt/p2kb-mcp/bin/p2kb-mcp --version
 ```
 
-You should see a JSON response listing all available tools.
-
-## Cache Location
-
-P2KB MCP caches the index and YAML files locally. Cache location depends on installation type:
-
-### Container-Tools Installation
-- **Location**: `/opt/container-tools/var/cache/p2kb-mcp/`
-
-### Standalone Installation (Linux/macOS)
-- **Location**: `.cache/` directory next to the binary (e.g., `/opt/p2kb-mcp/.cache/`)
-
-### Standalone Installation (Windows)
-- **Location**: `%LOCALAPPDATA%\p2kb-mcp\cache\`
-  (e.g., `C:\Users\{username}\AppData\Local\p2kb-mcp\cache\`)
-
-### Override
-Set the `P2KB_CACHE_DIR` environment variable to use a custom location.
-
-**Cache structure:**
+```powershell
+# Windows
+& "C:\Program Files\p2kb-mcp\bin\p2kb-mcp.exe" --version
 ```
-{cache_dir}/
-├── index/
-│   ├── p2kb-index.json      # Decompressed index
-│   └── p2kb-index.meta      # Index metadata
-└── cache/
-    ├── p2kbPasm2Mov.yaml    # Cached content files
-    └── ...
-```
+
+---
+
+## Cache
+
+P2KB MCP downloads and caches the knowledge base index and content files locally on first use. No manual setup is required — it fetches what it needs automatically.
+
+| Platform | Cache Location |
+|----------|---------------|
+| macOS / Linux | `/opt/p2kb-mcp/.cache/` (next to the binary) |
+| Windows | `%LOCALAPPDATA%\p2kb-mcp\cache\` |
+
+To use a custom cache location, set the `P2KB_CACHE_DIR` environment variable.
+
+---
 
 ## Troubleshooting
 
-### macOS Gatekeeper Warning
+### macOS: "Cannot be opened because the developer cannot be verified"
 
-If you see "cannot be opened because the developer cannot be verified":
+This means the quarantine flag wasn't cleared. Run:
 
 ```bash
-xattr -d com.apple.quarantine /path/to/p2kb-mcp
+sudo xattr -rd com.apple.quarantine /opt/p2kb-mcp
 ```
-
-Or use signed binaries from releases with macOS signing enabled.
 
 ### Network Issues
 
-P2KB MCP fetches data from GitHub. If you're behind a proxy:
+P2KB MCP fetches data from GitHub on first use. If you're behind a corporate proxy:
 
 ```bash
 export HTTP_PROXY=http://proxy.example.com:8080
 export HTTPS_PROXY=http://proxy.example.com:8080
 ```
 
+On Windows (PowerShell):
+
+```powershell
+$env:HTTP_PROXY = "http://proxy.example.com:8080"
+$env:HTTPS_PROXY = "http://proxy.example.com:8080"
+```
+
 ### Debug Logging
 
-Enable debug output:
+If something isn't working, enable verbose output:
 
 ```bash
-P2KB_LOG_LEVEL=debug /opt/container-tools/bin/p2kb-mcp
+P2KB_LOG_LEVEL=debug /opt/p2kb-mcp/bin/p2kb-mcp --mode stdio
 ```
 
-### Cache Issues
+### Force Cache Refresh
 
-Force refresh the cache:
+If cached data seems stale, ask Claude to refresh:
+
+> *"Please refresh the P2 Knowledge Base cache."*
+
+Or from the command line:
 
 ```bash
-# Via MCP tool
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"p2kb_refresh","arguments":{"invalidate_cache":true}}}' | /opt/container-tools/bin/p2kb-mcp
-
-# Or delete cache manually
-# Container-tools:
-sudo rm -rf /opt/container-tools/var/cache/p2kb-mcp/*
-
-# Standalone:
-rm -rf /opt/p2kb-mcp/.cache/*
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"p2kb_refresh","arguments":{"invalidate_cache":true}}}' | /opt/p2kb-mcp/bin/p2kb-mcp
 ```
 
-## Uninstallation
-
-### Container-Tools Installation
-
-**Using the installer (recommended):**
-```bash
-# Navigate to extracted package directory, or download again
-cd p2kb-mcp
-sudo ./install.sh --uninstall
-```
-
-If a prior version exists (from a previous update), uninstall will **rollback** to that version.
-If no prior exists, it performs a **full removal**.
-
-**Manual removal:**
-```bash
-# Remove the MCP (includes backup/prior/ if exists)
-sudo rm -rf /opt/container-tools/p2kb-mcp
-sudo rm -f /opt/container-tools/bin/p2kb-mcp
-sudo rm -f /opt/container-tools/etc/hooks.d/*/p2kb-mcp.sh
-
-# Edit /opt/container-tools/etc/mcp.json to remove the p2kb-mcp entry
-```
-
-### Standalone Installation
-
-```bash
-# Linux/macOS
-sudo rm -rf /opt/p2kb-mcp
-
-# Windows
-# Delete the installation folder
-# Delete %LOCALAPPDATA%\p2kb-mcp
-```
+---
 
 ## Updating
 
-### Container-Tools Installation
+1. Download the new release from the [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases) page
+2. Replace the existing installation:
 
-The installer handles updates automatically:
+   **macOS / Linux:**
+   ```bash
+   sudo rm -rf /opt/p2kb-mcp
+   sudo mv p2kb-mcp /opt/p2kb-mcp
+   sudo xattr -rd com.apple.quarantine /opt/p2kb-mcp   # macOS only
+   ```
 
+   **Windows:** Delete `C:\Program Files\p2kb-mcp\` and move the new folder there.
+
+3. Restart Claude Desktop (if using it). Claude Code will pick up the new version automatically.
+
+## Uninstalling
+
+**1. Remove the files:**
+
+**macOS / Linux:**
 ```bash
-# Download new version
-tar -xzf container-tools-p2kb-mcp-vX.X.X.tar.gz
-cd p2kb-mcp
-
-# Install (automatically backs up current version)
-sudo ./install.sh
-
-# If something goes wrong, rollback
-sudo ./install.sh --uninstall
+sudo rm -rf /opt/p2kb-mcp
 ```
 
-The installer:
-1. Compares binary MD5 checksums - skips if identical
-2. Backs up mcp.json to existing installation's `backup/mcp.json-prior`
-3. Moves current installation to temp
-4. Installs new version
-5. Moves prior installation into new version's `backup/prior/`
-6. Preserves other MCPs in mcp.json
+**Windows:** Delete `C:\Program Files\p2kb-mcp\` and `%LOCALAPPDATA%\p2kb-mcp\`.
 
-### Standalone Installation
+**2. Remove the Claude configuration:**
 
-Replace the installation directory with the new version.
+**Claude Code:**
+```bash
+claude mcp remove p2kb-mcp
+```
+
+**Claude Desktop:** Edit the config file (see [Step 3](#option-b-claude-desktop) for the file location) and remove the `"p2kb-mcp"` entry from `"mcpServers"`.
