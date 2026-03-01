@@ -49,8 +49,8 @@ Thumbs.db
 # Local devcontainer setup (not versioned)
 .devcontainer/local-setup.sh
 
-# Local MCP configuration
-.mcp.json
+# Local devcontainer overrides (host-specific mounts)
+.devcontainer/docker-compose.override.yml
 
 # Local Claude Code settings
 .claude/settings.local.json
@@ -59,3 +59,6 @@ Thumbs.db
 ref-mcp.tar.gz
 .claude/
 CLAUDE.md
+DOCs/forum-announcement-draft.md
+DOCs/REF/
+/internal

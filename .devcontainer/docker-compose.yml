@@ -1,0 +1,11 @@
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces/P2-Knowledge-Base-MCP:cached
+    environment:
+      P2KB_LOG_LEVEL: "debug"
+    init: true
+    command: sleep infinity

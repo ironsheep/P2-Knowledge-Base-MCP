@@ -1,9 +1,9 @@
 {
   "name": "P2KB MCP Development",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
-  },
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.override.yml"],
+  "service": "dev",
+  "workspaceFolder": "/workspaces/P2-Knowledge-Base-MCP",
+  "initializeCommand": "test -f .devcontainer/docker-compose.override.yml || echo 'services: {}' > .devcontainer/docker-compose.override.yml",
   "features": {
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
     "ghcr.io/devcontainers/features/node:1": {
@@ -43,11 +43,6 @@
       }
     }
   },
-  "postCreateCommand": "go mod download && go install golang.org/x/tools/gopls@latest && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; [ -f .devcontainer/local-setup.sh ] && bash .devcontainer/local-setup.sh || true",
-  "remoteUser": "vscode",
-  "runArgs": ["--init"],
-  "forwardPorts": [],
-  "containerEnv": {
-    "P2KB_LOG_LEVEL": "debug"
-  }
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y liblept5 libtesseract5 || true; sudo mkdir -p /Users/stephen && sudo ln -sfn /opt/container-tools /Users/stephen/container-tools; go mod download && go install golang.org/x/tools/gopls@latest && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; [ -f .devcontainer/local-setup.sh ] && bash .devcontainer/local-setup.sh || true",
+  "remoteUser": "vscode"
 }

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "todo-mcp": {
+      "command": "/Users/stephen/container-tools/bin/todo-mcp",
+      "args": ["--mode", "stdio"]
+    },
+    "p2kb-mcp": {
+      "command": "/Users/stephen/container-tools/bin/p2kb-mcp",
+      "args": ["--mode", "stdio"]
+    },
+    "image-tools-mcp": {
+      "command": "/Users/stephen/container-tools/bin/image-tools-mcp",
+      "args": ["--mode", "stdio"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspaces/P2-Knowledge-Base-MCP"]
+    }
+  }
+}
