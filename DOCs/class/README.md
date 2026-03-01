@@ -1,5 +1,7 @@
 # AI-Assisted Propeller 2 Development — Zoom Class
 
+> **Disclaimer:** The pricing, plan details, and feature availability referenced in this document and the linked setup guides reflect our best research as of February 2026. These products and their plans change frequently — verify current pricing and features on each vendor's website before purchasing. Your mileage may vary.
+
 ## Welcome
 
 You're invited to a live Zoom session where we'll demonstrate how to use an AI coding agent to develop real software for the Parallax Propeller 2 (P2). This isn't a theoretical walkthrough — we'll be writing actual code, talking to actual hardware, and showing you what's possible when an AI agent has access to the P2 Knowledge Base.
@@ -72,8 +74,8 @@ The setup guides also document alternative paths — Claude Desktop (free tier),
 
 ## What to Bring
 
-- **A computer** with the tools installed (see setup guide above)
-- **A P2 board** with something connected to it (if you want to try things live)
+- **Your development machine** with the tools installed (see setup guide above)
+- **A P2 board USB-connected to your development machine** so we can compile, download code to the P2, and run the debugger during the session
 - **A datasheet or reference document** for whatever device you have wired up — the agent can read PDFs and web pages
 - **Curiosity** — this is new territory for P2 development, and we're all learning together
 

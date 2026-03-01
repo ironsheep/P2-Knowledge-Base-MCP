@@ -2,7 +2,11 @@
 
 > **Disclaimer:** The pricing, plan details, and feature availability described in this document reflect our best research as of February 2026. These products and their plans change frequently — verify current pricing and features on each vendor's website before purchasing. Your mileage may vary.
 
+*See the [class overview](README.md) for what this session covers and why you'd want to attend.*
+
 Welcome! Before our Zoom session, please install the tools listed below so we can hit the ground running. Set aside about 30 minutes—most steps are quick downloads and single-line installs.
+
+**Contents:** [1. PNut_TS Compiler](#1-pnut_ts-compiler) | [2. pnut-term-ts Downloader](#2-pnut_ts-downloader-pnut-term-ts) | [3. Claude Code CLI](#3-claude-code-cli) | [4. P2KB-MCP Server](#4-p2-knowledge-base-mcp-server) | [5. Audio Setup](#5-audio-setup-system-dictation-for-terminal-use) | [6. Wispr](#6-wispr-optional--ai-voice-input) | [Checklist](#checklist) | [Appendix: Alternatives](#appendix-alternative-ai-coding-tools)
 
 ---
 
@@ -14,13 +18,15 @@ PNut_TS is the TypeScript-based Propeller 2 compiler (the name stands for **P**-
 
 ## 2. PNut_TS Downloader (pnut-term-ts)
 
-The PNut_TS terminal downloader (`pnut-term-ts`) fetches P2 binaries to your board.
+The PNut_TS terminal tool (`pnut-term-ts`) loads your compiled P2 binaries onto the Propeller 2 board via serial connection.
 
 **Install instructions:** [Install/Update pnut-term-ts on macOS](https://github.com/ironsheep/P2-vscode-langserv-extension/blob/main/TASKS-User-macOS.md#installing-pnut-term-ts-on-macos)
 
 ## 3. Claude Code CLI
 
 Claude Code is Anthropic's command-line interface for Claude.
+
+**First:** If you don't already have one, [create a Claude account at claude.ai](https://claude.ai/) and subscribe to at least the **Pro** plan. Do this before installing Claude Code — you'll need to log in during setup.
 
 **Install instructions:** Follow the [Claude Code Quickstart Guide](https://code.claude.com/docs/en/quickstart) — it covers prerequisites and installation for all platforms.
 
@@ -164,9 +170,9 @@ When you see the dictation mic bubble appear, your speech will be typed at the c
 Before the class session, confirm each of the following:
 
 - [ ] PNut_TS compiler installed and runs
-- [ ] PNut_TS downloader installed and runs
-- [ ] Claude Code CLI installed (`claude --version` shows a version)
-- [ ] P2KB-MCP server installed and connected to Claude Code
+- [ ] pnut-term-ts installed and runs
+- [ ] **Either:** Claude Code CLI installed (`claude --version` shows a version) **or** Claude Desktop installed with P2KB-MCP configured (free tier)
+- [ ] P2KB-MCP server installed and connected to your Claude client
 - [ ] Microphone working (test in System Settings → Sound → Input)
 - [ ] (Optional) Wispr installed and working
 
