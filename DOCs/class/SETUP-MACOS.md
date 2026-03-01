@@ -1,5 +1,7 @@
 # Pre-Class Setup Guide — macOS
 
+> **Disclaimer:** The pricing, plan details, and feature availability described in this document reflect our best research as of February 2026. These products and their plans change frequently — verify current pricing and features on each vendor's website before purchasing. Your mileage may vary.
+
 Welcome! Before our Zoom session, please install the tools listed below so we can hit the ground running. Set aside about 30 minutes—most steps are quick downloads and single-line installs.
 
 ---
