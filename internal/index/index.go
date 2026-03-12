@@ -775,12 +775,17 @@ func (m *Manager) loadFromCache() bool {
 // Caller is responsible for updating the index under appropriate locks.
 func (m *Manager) fetchIndexData() (*Index, []byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequest("GET", IndexURL, nil)
+
+	// Cache-busting query parameter to bypass GitHub CDN cache.
+	// GitHub's CDN (Fastly) ignores client-side Cache-Control headers,
+	// but treats different query strings as different resources.
+	url := fmt.Sprintf("%s?t=%d", IndexURL, time.Now().UnixNano())
+
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Cache-busting headers to get fresh content
 	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	req.Header.Set("Pragma", "no-cache")
 

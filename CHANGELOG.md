@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-03-12
+
+### Fixed
+
+- **GitHub CDN cache bypass**: Index refresh now appends a cache-busting query parameter (`?t=<timestamp>`) to the fetch URL, ensuring GitHub's CDN (Fastly) returns fresh content instead of a stale cached copy. Previously, `Cache-Control` request headers were ignored by the CDN, so `p2kb_refresh` could silently return outdated index data.
+
 ## [1.3.3] - 2026-02-03
 
 ### Added
