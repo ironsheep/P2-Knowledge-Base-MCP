@@ -294,7 +294,7 @@ See [API.md](DOCs/API.md#migration-from-v10x) for migration details from v1.0.x
 
 ### Technical Details
 
-- Built with Go 1.22+
+- Built with Go 1.23+
 - MCP protocol version 2024-11-05
 - JSON-RPC 2.0 over stdio
 - No external dependencies required at runtime

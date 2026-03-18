@@ -462,7 +462,7 @@ If index fails to parse:
 ### Dockerfile
 
 ```dockerfile
-FROM mcr.microsoft.com/devcontainers/go:1.22
+FROM mcr.microsoft.com/devcontainers/go:1.23
 
 # Install Node.js for Claude Code
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
@@ -559,7 +559,7 @@ p2kb-mcp/
 // go.mod
 module github.com/ironsheep/p2kb-mcp
 
-go 1.22
+go 1.23
 
 require (
     github.com/mark3labs/mcp-go v0.x.x  // MCP SDK for Go
@@ -787,7 +787,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Run tests with coverage
         run: make test-ci
@@ -1048,7 +1048,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Build
         env:
@@ -1088,7 +1088,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Run tests with coverage
         run: |
@@ -1148,7 +1148,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Build
         env:
