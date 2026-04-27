@@ -45,8 +45,17 @@ func TestHandleInitialize(t *testing.T) {
 		t.Fatal("result is not a map")
 	}
 
-	if result["protocolVersion"] != "2024-11-05" {
-		t.Errorf("protocolVersion = %v, want 2024-11-05", result["protocolVersion"])
+	// With no client-supplied protocolVersion, server returns its max.
+	if result["protocolVersion"] != serverMaxVersion {
+		t.Errorf("protocolVersion = %v, want %v", result["protocolVersion"], serverMaxVersion)
+	}
+
+	// Result must contain only the spec-allowed top-level keys.
+	allowed := map[string]bool{"protocolVersion": true, "capabilities": true, "serverInfo": true, "instructions": true, "_meta": true}
+	for k := range result {
+		if !allowed[k] {
+			t.Errorf("non-spec field in initialize result: %q", k)
+		}
 	}
 
 	serverInfo, ok := result["serverInfo"].(map[string]interface{})
@@ -55,6 +64,58 @@ func TestHandleInitialize(t *testing.T) {
 	}
 	if serverInfo["name"] != "p2kb-mcp" {
 		t.Errorf("serverInfo.name = %v, want p2kb-mcp", serverInfo["name"])
+	}
+}
+
+func TestHandleInitializeProtocolNegotiation(t *testing.T) {
+	srv := New("1.0.0")
+
+	cases := []struct {
+		name        string
+		clientVer   string
+		wantVersion string
+	}{
+		{"supported 2024-11-05 echoed", "2024-11-05", "2024-11-05"},
+		{"supported 2025-03-26 echoed", "2025-03-26", "2025-03-26"},
+		{"supported 2025-06-18 echoed", "2025-06-18", "2025-06-18"},
+		{"future version falls back to server max", "2099-01-01", serverMaxVersion},
+		{"unknown version falls back to server max", "garbage", serverMaxVersion},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			params, _ := json.Marshal(map[string]interface{}{"protocolVersion": tc.clientVer})
+			req := &MCPRequest{JSONRPC: "2.0", ID: 1, Method: "initialize", Params: params}
+			resp := srv.handleRequest(req)
+			if resp == nil || resp.Error != nil {
+				t.Fatalf("unexpected error: %+v", resp)
+			}
+			result := resp.Result.(map[string]interface{})
+			if result["protocolVersion"] != tc.wantVersion {
+				t.Errorf("protocolVersion = %v, want %v", result["protocolVersion"], tc.wantVersion)
+			}
+		})
+	}
+}
+
+func TestHandleNotificationsAreFiltered(t *testing.T) {
+	srv := New("1.0.0")
+
+	// Any method without an id is a notification and must not produce a response,
+	// including notifications the server doesn't recognize.
+	cases := []string{
+		"notifications/initialized",
+		"notifications/cancelled",
+		"notifications/progress",
+		"some/unknown/notification",
+	}
+	for _, method := range cases {
+		t.Run(method, func(t *testing.T) {
+			req := &MCPRequest{JSONRPC: "2.0", ID: nil, Method: method}
+			if resp := srv.handleRequest(req); resp != nil {
+				t.Errorf("notification %q produced a response: %+v", method, resp)
+			}
+		})
 	}
 }
 

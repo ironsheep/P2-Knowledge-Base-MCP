@@ -24,5 +24,16 @@
     "coverage.out": true,
     "coverage.html": true
   },
-  "makefile.configureOnOpen": false
+  "makefile.configureOnOpen": false,
+  "spin2.serialPort": "Parw7ukt",
+  "spin2.localIncludes": {
+    "internal/server/OBEX/2811-park-transformation": {
+      "auto": true,
+      "dirs": []
+    },
+    "internal/server/custom/output/path": {
+      "auto": true,
+      "dirs": []
+    }
+  }
 }

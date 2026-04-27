@@ -22,9 +22,9 @@ The container-tools package installs P2KB MCP into a shared `/opt/container-tool
 3. Extract and install:
 
 ```bash
-# Extract the package
+# Extract the package (creates container-tools-p2kb-mcp-vX.X.X/p2kb-mcp/)
 tar -xzf container-tools-p2kb-mcp-v*.tar.gz
-cd p2kb-mcp
+cd container-tools-p2kb-mcp-v*/p2kb-mcp
 
 # Install (requires sudo for /opt)
 sudo ./install.sh
@@ -215,7 +215,7 @@ The installer handles updates automatically:
 ```bash
 # Download new version
 tar -xzf container-tools-p2kb-mcp-vX.X.X.tar.gz
-cd p2kb-mcp
+cd container-tools-p2kb-mcp-vX.X.X/p2kb-mcp
 
 # Install (automatically backs up current version)
 sudo ./install.sh
@@ -241,7 +241,7 @@ The installer:
 
 ```bash
 # Navigate to extracted package directory, or download again
-cd p2kb-mcp
+cd container-tools-p2kb-mcp-v*/p2kb-mcp
 sudo ./install.sh --uninstall
 ```
 

@@ -733,9 +733,9 @@ jobs:
             Multi-platform package for container-tools installations. Includes binaries for all platforms.
 
             ```bash
-            # Download and extract
+            # Download and extract (creates container-tools-p2kb-mcp-<version>/p2kb-mcp/)
             tar -xzf container-tools-p2kb-mcp-${{ steps.version.outputs.VERSION }}.tar.gz
-            cd p2kb-mcp
+            cd container-tools-p2kb-mcp-${{ steps.version.outputs.VERSION }}/p2kb-mcp
 
             # Install
             sudo ./install.sh

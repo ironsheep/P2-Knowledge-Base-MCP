@@ -38,12 +38,14 @@ Go to the [Releases](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases
 
 ### Windows
 
-1. **Extract the zip file.** Right-click the downloaded `.zip` file and select **Extract All...**
+1. **Extract the zip file.** Right-click the downloaded `.zip` file and select **Extract All...** — click **Extract** to accept the default location. This creates a folder named `p2kb-mcp-vX.X.X-windows-amd64\` (or `-arm64\`) containing an inner `p2kb-mcp\` folder.
 
-2. **Move to Program Files.** Move the extracted `p2kb-mcp` folder to `C:\Program Files\`:
-   - Open File Explorer and navigate to `C:\Program Files\`
-   - Drag the `p2kb-mcp` folder there
+2. **Move to Program Files.** Open the extracted `p2kb-mcp-vX.X.X-windows-*\` folder so you can see the inner `p2kb-mcp\` folder. Then:
+   - Open a second File Explorer window and navigate to `C:\Program Files\`
+   - Drag the inner `p2kb-mcp` folder into `C:\Program Files\` (not the outer versioned folder)
    - Click **Continue** when prompted for Administrator permission
+
+   You should end up with `C:\Program Files\p2kb-mcp\bin\p2kb-mcp.exe`.
 
 3. **Verify the installation.** Open PowerShell or Command Prompt and run:
 

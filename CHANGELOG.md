@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-04-27
+
+### Fixed
+
+- **MCP protocol compliance (audit per `DOCs/REF/MCP_PROTOCOL_AUDIT_GUIDE.md`)**:
+  - **Notification responses suppressed**: any incoming JSON-RPC message without an `id` (notification) now returns no response at all. Previously, only `notifications/initialized` was filtered; other notifications such as `notifications/cancelled` fell through to the unknown-method handler and produced a `{"id":null,"error":...}` reply, which strict clients reject.
+  - **`protocolVersion` negotiation**: the initialize handler now negotiates from a server-defined supported set (`2024-11-05`, `2025-03-26`, `2025-06-18`), echoing the client's version when supported and otherwise responding with the server's max (`2025-06-18`). Previously the response was hardcoded to `2024-11-05`.
+
+### Changed
+
+- **Authoritative-source signaling for the model**:
+  - Added a server-level `instructions` field to the initialize result (allowed since spec 2025-06-18) declaring this MCP as the authoritative source for Propeller 2 architecture, PASM2, Spin2, and OBEX content, and explicitly directing the model to prefer these tools over web search.
+  - Each of the 7 tool descriptions now leads with an authoritative-source line so the message is reinforced at tool-selection time, not just at connection time.
+
 ## [1.3.4] - 2026-03-12
 
 ### Fixed

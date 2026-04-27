@@ -74,16 +74,25 @@ Combine knowledge areas — your AI can pull from multiple parts of the knowledg
 
 ## Installation
 
-P2KB MCP supports Claude (Desktop and Code), Cursor, and Codex. Choose the guide for your AI tool:
+P2KB MCP supports Claude (Desktop and Code), Cursor, and Codex. Almost everyone wants the **standard single-platform install** — a one-platform download that drops a binary into `/opt/p2kb-mcp/` (or `C:\Program Files\p2kb-mcp\`) and wires it up to your AI tool. Three steps: download, install, connect.
+
+### Standard Install (recommended for almost everyone)
+
+Pick the guide for your AI tool. Each one uses the single-platform package for your OS:
 
 | Guide | For |
 |-------|-----|
-| **[INSTALL.md](INSTALL.md)** | **Claude Desktop** and **Claude Code** — platform-specific instructions for Windows, macOS, and Linux |
-| **[INSTALL-CURSOR.md](INSTALL-CURSOR.md)** | **Cursor** IDE users |
-| **[INSTALL-CODEX.md](INSTALL-CODEX.md)** | **OpenAI Codex** CLI and IDE extension users |
-| **[INSTALL-ADVANCED.md](INSTALL-ADVANCED.md)** | **Advanced users** who manage multiple MCPs with the container-tools framework |
+| **[INSTALL.md](INSTALL.md)** | **Claude Desktop** and **Claude Code** — Windows, macOS, and Linux |
+| **[INSTALL-CURSOR.md](INSTALL-CURSOR.md)** | **Cursor** IDE |
+| **[INSTALL-CODEX.md](INSTALL-CODEX.md)** | **OpenAI Codex** CLI and IDE extension |
 
-Each guide walks you through three steps: download the binary, install it, and connect it to your AI tool.
+**What you download:** a small platform-specific archive — e.g. `p2kb-mcp-vX.X.X-darwin-arm64.tar.gz` on Apple Silicon, `p2kb-mcp-vX.X.X-windows-amd64.zip` on Windows. It contains just the binary for your machine plus the docs.
+
+### Advanced: Container-Tools Install
+
+The separate `container-tools-p2kb-mcp-vX.X.X.tar.gz` package exists for a specific niche: users who run **multiple** MCP servers and want them co-located under a shared `/opt/container-tools/` tree with a unified installer, shared `mcp.json`, automatic backup/rollback on updates, and Claude Code lifecycle hooks. It ships binaries for **all** platforms in one archive along with an `install.sh` script.
+
+Unless you are already using the container-tools framework for other MCPs, **skip this** — the standard install above is simpler and does the same job for a single MCP. If it does apply to you, see **[INSTALL-ADVANCED.md](INSTALL-ADVANCED.md)**.
 
 ---
 
