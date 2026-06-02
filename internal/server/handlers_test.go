@@ -1,8 +1,16 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/ironsheep/p2kb-mcp/internal/index"
 )
 
 // Test helper functions
@@ -761,4 +769,188 @@ func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
 			t.Error("OB prefix should be accepted")
 		}
 	}
+}
+
+// makeMinimalGzippedIndex builds a minimal valid p2kb index gzip payload for tests.
+func makeMinimalGzippedIndex(t *testing.T) []byte {
+	t.Helper()
+	idx := map[string]interface{}{
+		"system": map[string]interface{}{
+			"version":           "test-1.0",
+			"generated":         "2024-01-01T00:00:00Z",
+			"total_entries":     0,
+			"total_categories":  0,
+			"total_aliases":     0,
+		},
+		"categories": map[string]interface{}{},
+		"files":      map[string]interface{}{},
+		"aliases":    map[string]interface{}{},
+	}
+	raw, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatalf("marshal index: %v", err)
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(raw); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// newServerWithLocalIndex creates a server whose index manager points at a local
+// httptest server (no live network required) and whose cache dir is isolated in
+// a temp directory.  It returns the server and a cleanup function.
+func newServerWithLocalIndex(t *testing.T) (*Server, func()) {
+	t.Helper()
+
+	// Build a tiny httptest server that serves the gzipped index payload.
+	payload := makeMinimalGzippedIndex(t)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+
+	// Redirect the package-level IndexURL var to our local server.
+	origURL := index.IndexURL
+	index.IndexURL = ts.URL
+
+	// Redirect cache to an isolated temp dir.
+	tmpDir := t.TempDir()
+	if err := os.Setenv("P2KB_CACHE_DIR", tmpDir); err != nil {
+		t.Fatalf("setenv P2KB_CACHE_DIR: %v", err)
+	}
+
+	srv := New("1.0.0")
+
+	cleanup := func() {
+		ts.Close()
+		index.IndexURL = origURL
+		os.Unsetenv("P2KB_CACHE_DIR")
+	}
+	return srv, cleanup
+}
+
+// seedDiskCache writes fake YAML files into the server's cache dir so
+// GetCachedKeys() reports them.  It returns the cache dir path and the keys
+// written.
+func seedDiskCache(t *testing.T) (cacheDir string, keys []string) {
+	t.Helper()
+	cacheDir = os.Getenv("P2KB_CACHE_DIR")
+	if cacheDir == "" {
+		t.Fatal("P2KB_CACHE_DIR not set; call newServerWithLocalIndex first")
+	}
+	subDir := filepath.Join(cacheDir, "cache")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("mkdir cache subdir: %v", err)
+	}
+	keys = []string{"testKey1", "testKey2"}
+	for _, k := range keys {
+		path := filepath.Join(subDir, k+".yaml")
+		if err := os.WriteFile(path, []byte("mnemonic: "+k), 0644); err != nil {
+			t.Fatalf("write seed file %s: %v", path, err)
+		}
+	}
+	return cacheDir, keys
+}
+
+// TestHandleRefreshFlushEmptiesCache verifies that flush:true wipes both the
+// memory and disk cache entirely.  Index refresh is served by a local httptest
+// server so no live network is required.
+func TestHandleRefreshFlushEmptiesCache(t *testing.T) {
+	srv, cleanup := newServerWithLocalIndex(t)
+	defer cleanup()
+
+	// Seed the disk cache with two fake entries.
+	_, seededKeys := seedDiskCache(t)
+	if got := len(srv.cacheManager.GetCachedKeys()); got != len(seededKeys) {
+		t.Fatalf("pre-flush: expected %d cached keys, got %d", len(seededKeys), got)
+	}
+
+	// Invoke p2kb_refresh with flush:true
+	args, _ := json.Marshal(map[string]interface{}{"flush": true})
+	resp := srv.handleRefresh(1, args)
+
+	if resp.Error != nil {
+		t.Fatalf("handleRefresh(flush:true) returned error: %v", resp.Error)
+	}
+
+	// Cache must be empty after flush.
+	remaining := srv.cacheManager.GetCachedKeys()
+	if len(remaining) != 0 {
+		t.Errorf("post-flush: expected 0 cached keys, got %d: %v", len(remaining), remaining)
+	}
+
+	// GetStats must report 0 memory + 0 disk entries.
+	stats := srv.cacheManager.GetStats()
+	if stats.MemoryEntries != 0 {
+		t.Errorf("post-flush: MemoryEntries = %d, want 0", stats.MemoryEntries)
+	}
+	if stats.DiskEntries != 0 {
+		t.Errorf("post-flush: DiskEntries = %d, want 0", stats.DiskEntries)
+	}
+
+	// Result must carry flushed:true
+	resultMap := extractResultMap(t, resp)
+	if resultMap["flushed"] != true {
+		t.Errorf("result[flushed] = %v, want true", resultMap["flushed"])
+	}
+	if resultMap["refreshed"] != true {
+		t.Errorf("result[refreshed] = %v, want true", resultMap["refreshed"])
+	}
+}
+
+// TestHandleRefreshSelectivePathUnchanged confirms that the default (flush:false)
+// selective invalidation path still runs and returns expected fields.
+func TestHandleRefreshSelectivePathUnchanged(t *testing.T) {
+	srv, cleanup := newServerWithLocalIndex(t)
+	defer cleanup()
+
+	args, _ := json.Marshal(map[string]interface{}{})
+	resp := srv.handleRefresh(1, args)
+
+	if resp.Error != nil {
+		t.Fatalf("handleRefresh(default) returned error: %v", resp.Error)
+	}
+
+	resultMap := extractResultMap(t, resp)
+
+	if resultMap["refreshed"] != true {
+		t.Errorf("result[refreshed] = %v, want true", resultMap["refreshed"])
+	}
+	if resultMap["flushed"] != false {
+		t.Errorf("result[flushed] = %v, want false", resultMap["flushed"])
+	}
+	if _, ok := resultMap["stale_keys_found"]; !ok {
+		t.Error("result missing stale_keys_found on selective path")
+	}
+	if _, ok := resultMap["cache_entries_invalidated"]; !ok {
+		t.Error("result missing cache_entries_invalidated on selective path")
+	}
+}
+
+// extractResultMap pulls the JSON result map out of a successResponse for assertions.
+func extractResultMap(t *testing.T, resp *MCPResponse) map[string]interface{} {
+	t.Helper()
+	outer, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatal("resp.Result is not a map[string]interface{}")
+	}
+	content, ok := outer["content"].([]map[string]interface{})
+	if !ok || len(content) == 0 {
+		t.Fatal("resp.Result[content] is missing or empty")
+	}
+	text, ok := content[0]["text"].(string)
+	if !ok {
+		t.Fatal("content[0][text] is not a string")
+	}
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &resultMap); err != nil {
+		t.Fatalf("failed to parse result text as JSON: %v", err)
+	}
+	return resultMap
 }

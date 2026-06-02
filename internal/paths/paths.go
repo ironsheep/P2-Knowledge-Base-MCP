@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 )
 
 const (
@@ -18,9 +17,14 @@ const (
 //
 // Resolution order:
 //  1. P2KB_CACHE_DIR environment variable (if set)
-//  2. Container-tools layout: {exe}/../../../var/cache/p2kb-mcp/ (if in container-tools)
-//  3. Standalone layout: {exe}/../.cache/ (Linux/macOS)
+//  2. Container-tools layout: <root>/var/cache/p2kb-mcp/ (binary is at <root>/bin/platforms/<binary>)
+//  3. Standalone layout: <root>/.cache/ (binary is at <root>/bin/<binary>, Linux/macOS)
 //  4. Windows: %LOCALAPPDATA%\p2kb-mcp\cache\
+//
+// The install root is determined by walking up from the resolved executable until a
+// directory named "bin" is found; the parent of that "bin" directory is the root.
+// Container-tools mode is detected structurally: the binary's immediate parent must
+// be named "platforms".
 //
 // On Linux/macOS, this function will fail if the cache directory cannot be created
 // or is not writable, rather than silently falling back to another location.
@@ -45,40 +49,80 @@ func GetCacheDir() (string, error) {
 		return "", fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	exeDir := filepath.Dir(exePath)
-
-	// Priority 2: Container-tools layout detection
-	// Path pattern: /opt/container-tools/p2kb-mcp/bin/p2kb-mcp
-	// Cache location: /opt/container-tools/var/cache/p2kb-mcp/
-	if isContainerToolsInstall(exePath) {
-		// From {container-tools}/p2kb-mcp/bin/ go up to {container-tools}/var/cache/p2kb-mcp/
-		containerToolsRoot := filepath.Dir(filepath.Dir(exeDir))
-		cacheDir := filepath.Join(containerToolsRoot, "var", "cache", AppName)
-		if err := ensureWritableDir(cacheDir); err != nil {
-			return "", fmt.Errorf("container-tools cache directory not writable: %w", err)
-		}
-		return cacheDir, nil
-	}
-
-	// Platform-specific handling
+	// Platform-specific handling for Windows
 	if runtime.GOOS == "windows" {
 		return getWindowsCacheDir()
 	}
 
-	// Priority 3: Standalone layout (Linux/macOS)
-	// Binary at: {install}/bin/p2kb-mcp
-	// Cache at: {install}/.cache/
-	cacheDir := filepath.Join(exeDir, "..", ".cache")
-	cacheDir, err = filepath.Abs(cacheDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve cache path: %w", err)
-	}
+	// Determine cache directory purely from the resolved exe path
+	cacheDir := cacheDirForExe(exePath)
 
 	if err := ensureWritableDir(cacheDir); err != nil {
 		return "", fmt.Errorf("cache directory not writable at %s: %w", cacheDir, err)
 	}
 
 	return cacheDir, nil
+}
+
+// cacheDirForExe is a pure layout helper: given an already-resolved executable
+// path it returns the cache directory that should be used, without touching the
+// filesystem or environment variables.
+//
+// Algorithm:
+//  1. Walk up the directory chain from the exe's parent until a directory named
+//     "bin" is found.  The parent of that "bin" directory is the install root.
+//  2. If the exe's immediate parent is named "platforms" (container-tools layout),
+//     return <root>/var/cache/<AppName>.
+//  3. Otherwise (standalone layout) return <root>/.cache.
+//  4. If no "bin" directory is found while walking up (unexpected layout), fall
+//     back to <exeDir>/../.cache to preserve the old standalone behavior.
+func cacheDirForExe(exePath string) string {
+	exeDir := filepath.Dir(exePath)
+
+	// Detect container-tools mode: immediate parent of exe is "platforms"
+	container := isContainerToolsInstall(exePath)
+
+	// Walk up from exeDir looking for a directory named "bin"
+	installRoot := findInstallRoot(exeDir)
+
+	if container {
+		// Container-tools: <root>/var/cache/<AppName>
+		return filepath.Join(installRoot, "var", "cache", AppName)
+	}
+
+	// Standalone: <root>/.cache
+	return filepath.Join(installRoot, ".cache")
+}
+
+// findInstallRoot walks up the directory chain from dir, looking for a directory
+// whose base name is "bin".  When found it returns the parent of that directory
+// (the install root).
+//
+// If no "bin" ancestor is found (e.g. the binary was invoked from an unexpected
+// path layout) the function falls back to dir's own parent so callers remain
+// robust — this mirrors the legacy standalone ".." behaviour.
+func findInstallRoot(dir string) string {
+	current := dir
+	for {
+		base := filepath.Base(current)
+		if base == "bin" {
+			return filepath.Dir(current)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			// Reached the filesystem root without finding "bin".
+			// Fall back: treat exeDir itself as one level below root.
+			return filepath.Dir(dir)
+		}
+		current = parent
+	}
+}
+
+// isContainerToolsInstall reports whether exePath is a container-tools install.
+// The detection is purely structural: a container-tools binary lives inside a
+// directory named "platforms" (i.e. the path looks like <root>/bin/platforms/<binary>).
+func isContainerToolsInstall(exePath string) bool {
+	return filepath.Base(filepath.Dir(exePath)) == "platforms"
 }
 
 // GetCacheDirOrDefault returns the cache directory, falling back to a default on error.
@@ -112,14 +156,6 @@ func getWindowsCacheDir() (string, error) {
 	}
 
 	return cacheDir, nil
-}
-
-// isContainerToolsInstall checks if the executable is running from a container-tools installation.
-func isContainerToolsInstall(exePath string) bool {
-	// Check if path contains "container-tools" directory
-	// Normalize path separators for comparison
-	normalizedPath := filepath.ToSlash(exePath)
-	return strings.Contains(normalizedPath, "container-tools/")
 }
 
 // ensureWritableDir ensures a directory exists and is writable.

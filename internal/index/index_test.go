@@ -1,8 +1,15 @@
 package index
 
 import (
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -826,7 +833,7 @@ func TestGetKeyPathWithAlias(t *testing.T) {
 	}
 
 	// Via alias
-	path, mtime, err := m.GetKeyPath("ADD")
+	path, mtime, sha, err := m.GetKeyPath("ADD")
 	if err != nil {
 		t.Fatalf("GetKeyPath via alias failed: %v", err)
 	}
@@ -836,9 +843,13 @@ func TestGetKeyPathWithAlias(t *testing.T) {
 	if mtime != 1234567890 {
 		t.Errorf("mtime = %d, want 1234567890", mtime)
 	}
+	// FileEntry carries no sha256, so an empty digest is expected (pre-3.5.0).
+	if sha != "" {
+		t.Errorf("sha256 = %q, want empty", sha)
+	}
 
 	// Via lowercase alias
-	path, _, err = m.GetKeyPath("add")
+	path, _, _, err = m.GetKeyPath("add")
 	if err != nil {
 		t.Fatalf("GetKeyPath via lowercase alias failed: %v", err)
 	}
@@ -1127,6 +1138,127 @@ func TestResolveKeyTriggersErrorRefresh(t *testing.T) {
 	}
 }
 
+// TestSearchAliasAware covers all six alias-aware Search cases (§9).
+func TestSearchAliasAware(t *testing.T) {
+	// Shared index used by most sub-tests.
+	// Files:
+	//   p2kbArchClockSystem  — reachable only via alias "RCFAST"
+	//   p2kbPasm2Abs         — canonical key AND alias target for "ABS"
+	//   p2kbSpin2Abs         — second target for alias "ABS"
+	//   p2kbPasm2Mov         — present in files, NOT in any alias
+	// Aliases:
+	//   "RCFAST" -> ["p2kbArchClockSystem"]
+	//   "ABS"    -> ["p2kbPasm2Abs", "p2kbSpin2Abs"]
+	//   "GHOST"  -> ["p2kbDoesNotExist"]  (dangling alias)
+	//   "MOVDUP" -> ["p2kbPasm2Mov"]      (alias whose target is also a direct hit for "mov")
+	makeManager := func() *Manager {
+		return &Manager{
+			index: &Index{
+				Files: map[string]FileEntry{
+					"p2kbArchClockSystem": {Path: "arch/clock.yaml"},
+					"p2kbPasm2Abs":        {Path: "pasm2/abs.yaml"},
+					"p2kbSpin2Abs":        {Path: "spin2/abs.yaml"},
+					"p2kbPasm2Mov":        {Path: "pasm2/mov.yaml"},
+				},
+				Aliases: map[string][]string{
+					"RCFAST": {"p2kbArchClockSystem"},
+					"ABS":    {"p2kbPasm2Abs", "p2kbSpin2Abs"},
+					"GHOST":  {"p2kbDoesNotExist"},
+					"MOVDUP": {"p2kbPasm2Mov"},
+				},
+			},
+			lastRefresh: time.Now(),
+			ttl:         DefaultIndexTTL,
+		}
+	}
+
+	// Case 1: alias-only hit — term matches alias name but NOT any canonical key directly.
+	t.Run("alias_only_hit", func(t *testing.T) {
+		m := makeManager()
+		results := m.Search("rcfast", 0)
+		if len(results) != 1 {
+			t.Fatalf("Search(rcfast) returned %d results, want 1: %v", len(results), results)
+		}
+		if results[0] != "p2kbArchClockSystem" {
+			t.Errorf("Search(rcfast)[0] = %q, want p2kbArchClockSystem", results[0])
+		}
+	})
+
+	// Case 2: multi-target alias — alias maps to 2+ targets; both must appear.
+	t.Run("multi_target_alias", func(t *testing.T) {
+		m := makeManager()
+		results := m.Search("abs", 0)
+		// "abs" hits alias "ABS" -> ["p2kbPasm2Abs","p2kbSpin2Abs"]
+		// It may also hit canonical keys that contain "abs" — both p2kbPasm2Abs and p2kbSpin2Abs do,
+		// so the set is the same either way.
+		if len(results) != 2 {
+			t.Fatalf("Search(abs) returned %d results, want 2: %v", len(results), results)
+		}
+		// Results are sorted.
+		if results[0] != "p2kbPasm2Abs" {
+			t.Errorf("results[0] = %q, want p2kbPasm2Abs", results[0])
+		}
+		if results[1] != "p2kbSpin2Abs" {
+			t.Errorf("results[1] = %q, want p2kbSpin2Abs", results[1])
+		}
+	})
+
+	// Case 3: dedupe — canonical key hit AND alias hit must yield exactly one occurrence.
+	// "mov" hits canonical key "p2kbPasm2Mov" directly, and also via alias "MOVDUP".
+	t.Run("dedupe_direct_and_alias", func(t *testing.T) {
+		m := makeManager()
+		results := m.Search("mov", 0)
+		// Only p2kbPasm2Mov should appear (once), not duplicated.
+		count := 0
+		for _, r := range results {
+			if r == "p2kbPasm2Mov" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("p2kbPasm2Mov appears %d times in Search(mov) results, want exactly 1: %v", count, results)
+		}
+	})
+
+	// Case 4: dangling alias excluded — alias "GHOST" points to a key not in files.
+	t.Run("dangling_alias_excluded", func(t *testing.T) {
+		m := makeManager()
+		results := m.Search("ghost", 0)
+		for _, r := range results {
+			if r == "p2kbDoesNotExist" {
+				t.Errorf("dangling alias target p2kbDoesNotExist must not appear in results")
+			}
+		}
+		// "ghost" does not substring-match any canonical key, so results should be empty.
+		if len(results) != 0 {
+			t.Errorf("Search(ghost) returned %v, want empty (all dangling)", results)
+		}
+	})
+
+	// Case 5: empty term -> nil.
+	t.Run("empty_term_returns_nil", func(t *testing.T) {
+		m := makeManager()
+		results := m.Search("", 0)
+		if results != nil {
+			t.Errorf("Search('') = %v, want nil", results)
+		}
+	})
+
+	// Case 6: limit truncates after sort.
+	// "abs" returns 2 sorted results; limit=1 must return only the first.
+	t.Run("limit_honored", func(t *testing.T) {
+		m := makeManager()
+		results := m.Search("abs", 1)
+		if len(results) != 1 {
+			t.Fatalf("Search(abs, limit=1) returned %d results, want 1: %v", len(results), results)
+		}
+		// Sorted first is "p2kbPasm2Abs".
+		if results[0] != "p2kbPasm2Abs" {
+			t.Errorf("Search(abs, limit=1)[0] = %q, want p2kbPasm2Abs", results[0])
+		}
+	})
+}
+
 func TestResolveKeyDoesNotTriggerRefreshInCooldown(t *testing.T) {
 	m := &Manager{
 		index: &Index{
@@ -1152,5 +1284,164 @@ func TestResolveKeyDoesNotTriggerRefreshInCooldown(t *testing.T) {
 	// Verify that no refresh was attempted (timestamp unchanged)
 	if m.lastErrorRefresh != originalTime {
 		t.Error("ResolveKey should NOT trigger error refresh when in cooldown")
+	}
+}
+
+// minimalGzipIndex returns a gzip-compressed minimal valid Index JSON blob
+// suitable for serving from an httptest server so that fetchIndexData's
+// gzip.NewReader + json.Unmarshal succeed.
+func minimalGzipIndex(t *testing.T) []byte {
+	t.Helper()
+	idx := Index{
+		System:     SystemInfo{Version: "test-1.0"},
+		Categories: map[string][]string{},
+		Files:      map[string]FileEntry{},
+		Aliases:    map[string][]string{},
+	}
+	raw, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatalf("minimalGzipIndex: marshal: %v", err)
+	}
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write(raw); err != nil {
+		t.Fatalf("minimalGzipIndex: gzip write: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("minimalGzipIndex: gzip close: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// stubIndexServer points IndexURL at a local httptest server that serves a
+// minimal gzip-compressed index JSON on every request.  It records the last
+// received *http.Request and counts hits.  Because IndexURL is a package-level
+// var, tests using this helper must NOT call t.Parallel.  The cleanup restores
+// IndexURL and closes the server.
+func stubIndexServer(t *testing.T) (lastReq func() *http.Request, hits func() int) {
+	t.Helper()
+	body := minimalGzipIndex(t)
+
+	var reqMu atomic.Value // stores *http.Request
+	var hitCount int32
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hitCount, 1)
+		// Clone the request so the handler can return after the call.
+		clone := r.Clone(r.Context())
+		reqMu.Store(clone)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(body)
+	}))
+
+	prev := IndexURL
+	IndexURL = srv.URL + "/index.json.gz"
+	t.Cleanup(func() {
+		IndexURL = prev
+		srv.Close()
+	})
+
+	lastReq = func() *http.Request {
+		v := reqMu.Load()
+		if v == nil {
+			return nil
+		}
+		return v.(*http.Request)
+	}
+	hits = func() int { return int(atomic.LoadInt32(&hitCount)) }
+	return lastReq, hits
+}
+
+// TestFetchIndexDataBustParam verifies that fetchIndexData(bust) controls
+// whether the request includes a cache-busting query parameter and the
+// no-cache headers.
+func TestFetchIndexDataBustParam(t *testing.T) {
+	lastReq, hits := stubIndexServer(t)
+	m := &Manager{}
+
+	// bust=false — no "t=" query param, no Cache-Control header
+	_, _, err := m.fetchIndexData(false)
+	if err != nil {
+		t.Fatalf("fetchIndexData(false) returned error: %v", err)
+	}
+	if hits() != 1 {
+		t.Fatalf("expected 1 hit after fetchIndexData(false), got %d", hits())
+	}
+	req := lastReq()
+	if req == nil {
+		t.Fatal("no request recorded")
+	}
+	if strings.Contains(req.URL.RawQuery, "t=") {
+		t.Errorf("fetchIndexData(false): unexpected cache-bust query param in URL: %s", req.URL.String())
+	}
+	if cc := req.Header.Get("Cache-Control"); cc != "" {
+		t.Errorf("fetchIndexData(false): unexpected Cache-Control header: %q", cc)
+	}
+	if p := req.Header.Get("Pragma"); p != "" {
+		t.Errorf("fetchIndexData(false): unexpected Pragma header: %q", p)
+	}
+
+	// bust=true — must have "t=" query param AND both no-cache headers
+	_, _, err = m.fetchIndexData(true)
+	if err != nil {
+		t.Fatalf("fetchIndexData(true) returned error: %v", err)
+	}
+	if hits() != 2 {
+		t.Fatalf("expected 2 hits after fetchIndexData(true), got %d", hits())
+	}
+	req = lastReq()
+	if !strings.Contains(req.URL.RawQuery, "t=") {
+		t.Errorf("fetchIndexData(true): missing cache-bust query param in URL: %s", req.URL.String())
+	}
+	if cc := req.Header.Get("Cache-Control"); !strings.Contains(cc, "no-cache") {
+		t.Errorf("fetchIndexData(true): expected no-cache in Cache-Control, got %q", cc)
+	}
+	if p := req.Header.Get("Pragma"); p != "no-cache" {
+		t.Errorf("fetchIndexData(true): expected Pragma: no-cache, got %q", p)
+	}
+}
+
+// TestEnsureIndexTTLWindow verifies that EnsureIndex does NOT hit the network
+// when the in-memory index is fresh (within TTL), and DOES hit the network
+// once when the in-memory index has expired.
+func TestEnsureIndexTTLWindow(t *testing.T) {
+	_, hits := stubIndexServer(t)
+
+	// Point indexPath/metaPath at a directory that has no cache files so that
+	// loadFromCache returns false and the fetch path is actually exercised.
+	tmpDir := t.TempDir()
+	indexPath := filepath.Join(tmpDir, "p2kb-index.json")  // does not exist
+	metaPath := filepath.Join(tmpDir, "p2kb-index.meta")   // does not exist
+
+	// --- sub-test: fresh index must NOT trigger a fetch ---
+	m := &Manager{
+		index:       &Index{System: SystemInfo{Version: "cached"}, Files: map[string]FileEntry{}},
+		lastRefresh: time.Now(),
+		ttl:         DefaultIndexTTL,
+		indexPath:   indexPath,
+		metaPath:    metaPath,
+	}
+	if err := m.EnsureIndex(); err != nil {
+		t.Fatalf("EnsureIndex with fresh index returned error: %v", err)
+	}
+	if hits() != 0 {
+		t.Errorf("EnsureIndex with fresh index should not hit the server; got %d hits", hits())
+	}
+
+	// --- sub-test: a PRESENT but TTL-expired index must trigger exactly one
+	// fetch. Using a non-nil index (not nil) ensures we exercise the TTL-expiry
+	// branch specifically, not the separate "no in-memory index" path. ---
+	m2 := &Manager{
+		index:       &Index{System: SystemInfo{Version: "stale"}, Files: map[string]FileEntry{}},
+		lastRefresh: time.Now().Add(-10 * time.Minute), // older than 5min TTL
+		ttl:         DefaultIndexTTL,
+		indexPath:   indexPath,
+		metaPath:    metaPath,
+	}
+	if err := m2.EnsureIndex(); err != nil {
+		t.Fatalf("EnsureIndex with stale index returned error: %v", err)
+	}
+	if hits() != 1 {
+		t.Errorf("EnsureIndex with stale index should hit the server once; got %d hits", hits())
 	}
 }

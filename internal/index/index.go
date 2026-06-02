@@ -17,12 +17,15 @@ import (
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
-const (
-	// IndexURL is the URL of the compressed index file.
-	IndexURL = "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main/deliverables/ai/p2kb-index.json.gz"
+// IndexURL is the URL of the compressed index file. It is a var (not a const)
+// so tests can point the remote tier at a local httptest server.
+var IndexURL = "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main/deliverables/ai/p2kb-index.json.gz"
 
+const (
 	// DefaultIndexTTL is the default time-to-live for the cached index.
-	DefaultIndexTTL = 24 * time.Hour
+	// A short 5-minute window lets EnsureIndex ride the Fastly CDN edge on the
+	// lazy path while still detecting a new index within minutes.
+	DefaultIndexTTL = 5 * time.Minute
 
 	// ErrorRefreshCooldown is the minimum time between refresh-on-error attempts.
 	// This prevents excessive refresh attempts when keys are genuinely not found.
@@ -50,6 +53,11 @@ type SystemInfo struct {
 type FileEntry struct {
 	Path  string `json:"path"`
 	Mtime int64  `json:"mtime"`
+	// SHA256 is the lowercase hex digest of the raw content blob, used for
+	// transport verification of the downloaded file. Optional: absent from
+	// pre-3.5.0 indexes (the generator and client deploy independently), in
+	// which case verification is skipped.
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // Stats contains index statistics.
@@ -127,7 +135,8 @@ func (m *Manager) EnsureIndex() error {
 
 	// Fetch from remote WITHOUT holding the data lock
 	// This is the critical fix: network I/O happens outside the lock
-	idx, data, err := m.fetchIndexData()
+	// bust=false: ride the Fastly CDN edge on the lazy TTL-expiry path.
+	idx, data, err := m.fetchIndexData(false)
 	if err != nil {
 		return fmt.Errorf("index fetch failed: %w", err)
 	}
@@ -154,7 +163,8 @@ func (m *Manager) Refresh() error {
 	defer m.fetchMu.Unlock()
 
 	// Fetch from remote WITHOUT holding the data lock
-	idx, data, err := m.fetchIndexData()
+	// bust=true: bypass CDN cache on explicit user-triggered refresh.
+	idx, data, err := m.fetchIndexData(true)
 	if err != nil {
 		return fmt.Errorf("index refresh failed: %w", err)
 	}
@@ -289,11 +299,12 @@ func (m *Manager) resolveKeyLocked(key string) KeyResolution {
 	return KeyResolution{}
 }
 
-// GetKeyPath returns the path and mtime for a key.
-// Supports both canonical keys and aliases.
-func (m *Manager) GetKeyPath(key string) (string, int64, error) {
+// GetKeyPath returns the path, mtime, and content sha256 for a key.
+// Supports both canonical keys and aliases. The sha256 is empty when the index
+// does not carry one (pre-3.5.0), in which case the caller skips verification.
+func (m *Manager) GetKeyPath(key string) (path string, mtime int64, sha256 string, err error) {
 	if err := m.EnsureIndex(); err != nil {
-		return "", 0, err
+		return "", 0, "", err
 	}
 
 	m.mu.RLock()
@@ -301,11 +312,11 @@ func (m *Manager) GetKeyPath(key string) (string, int64, error) {
 
 	resolution := m.resolveKeyLocked(key)
 	if !resolution.Found {
-		return "", 0, fmt.Errorf("key not found: %s", key)
+		return "", 0, "", fmt.Errorf("key not found: %s", key)
 	}
 
 	entry := m.index.Files[resolution.CanonicalKey]
-	return entry.Path, entry.Mtime, nil
+	return entry.Path, entry.Mtime, entry.SHA256, nil
 }
 
 // KeyExists checks if a key exists in the index.
@@ -323,6 +334,10 @@ func (m *Manager) KeyExists(key string) bool {
 }
 
 // Search searches for keys matching a term.
+// It substring-matches both canonical file keys and alias names (case-insensitive).
+// When an alias name matches, all of its target canonical keys are included,
+// provided they exist in m.index.Files (dangling aliases are skipped).
+// Results are deduplicated, sorted, and truncated to limit (when limit > 0).
 func (m *Manager) Search(term string, limit int) []string {
 	if term == "" {
 		return nil
@@ -336,12 +351,33 @@ func (m *Manager) Search(term string, limit int) []string {
 	defer m.mu.RUnlock()
 
 	term = strings.ToLower(term)
-	var matches []string
+	seen := make(map[string]struct{})
 
+	// Direct hits: canonical file keys that contain the term.
 	for key := range m.index.Files {
 		if strings.Contains(strings.ToLower(key), term) {
-			matches = append(matches, key)
+			seen[key] = struct{}{}
 		}
+	}
+
+	// Alias hits: alias names whose key contains the term.
+	// Each matching alias contributes all its target canonical keys,
+	// but only those that actually exist in m.index.Files.
+	if m.index.Aliases != nil {
+		for aliasName, targets := range m.index.Aliases {
+			if strings.Contains(strings.ToLower(aliasName), term) {
+				for _, target := range targets {
+					if _, exists := m.index.Files[target]; exists {
+						seen[target] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+
+	matches := make([]string, 0, len(seen))
+	for key := range seen {
+		matches = append(matches, key)
 	}
 
 	sort.Strings(matches)
@@ -773,21 +809,34 @@ func (m *Manager) loadFromCache() bool {
 // fetchIndexData fetches the index from the remote URL and returns the parsed index and raw data.
 // This method does NOT modify any state - it only performs network I/O and parsing.
 // Caller is responsible for updating the index under appropriate locks.
-func (m *Manager) fetchIndexData() (*Index, []byte, error) {
+//
+// When bust is true the request bypasses CDN caches: a nanosecond query param
+// (?t=<nano>) is appended and Cache-Control / Pragma no-cache headers are set.
+// Use bust=true for explicit user-triggered refreshes (Refresh).
+//
+// When bust is false the request is sent to plain IndexURL with no extra query
+// params or headers, allowing the Fastly CDN edge to serve a cached response.
+// Use bust=false for the routine lazy TTL-expiry path (EnsureIndex).
+func (m *Manager) fetchIndexData(bust bool) (*Index, []byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	// Cache-busting query parameter to bypass GitHub CDN cache.
-	// GitHub's CDN (Fastly) ignores client-side Cache-Control headers,
-	// but treats different query strings as different resources.
-	url := fmt.Sprintf("%s?t=%d", IndexURL, time.Now().UnixNano())
+	fetchURL := IndexURL
+	if bust {
+		// Cache-busting query parameter to bypass GitHub CDN cache.
+		// GitHub's CDN (Fastly) ignores client-side Cache-Control headers,
+		// but treats different query strings as different resources.
+		fetchURL = fmt.Sprintf("%s?t=%d", IndexURL, time.Now().UnixNano())
+	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", fetchURL, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	req.Header.Set("Pragma", "no-cache")
+	if bust {
+		req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		req.Header.Set("Pragma", "no-cache")
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {

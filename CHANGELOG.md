@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-06-02
+
+Cache/refresh redesign: a KB push is now picked up within ~5 minutes without a manual refresh, downloaded content is verified end-to-end, and the cache location is resolved deterministically.
+
+### Added
+
+- **Content hash verification (transport integrity)**: when the index carries a `sha256` for a file, the client verifies the **raw downloaded bytes** against it *before* metadata filtering. On a mismatch it cache-busts and retries (CDN propagation lag); on persistent mismatch it returns a distinct *"temporarily unavailable — verification failed"* result (JSON-RPC `-32001`) carrying `expected_sha256`/`actual_sha256` and caches nothing, so the next request retries. Graceful degrade: indexes without `sha256` (pre-3.5.0) skip verification.
+- **`p2kb_refresh flush:true`**: full-flush escalation that wipes the entire content cache (all memory + disk) instead of selectively removing stale entries; with `include_obex`, clears the OBEX cache too. Escalation ladder: lazy auto-detect → manual refresh (selective) → `flush:true` (full wipe).
+- **Alias-aware search**: `p2kb_find`/search now matches the `aliases` map as well as canonical keys, so an entry reachable only by an alias name (e.g. `RCFAST` → `p2kbArchClockSystem`) is findable. Results are deduplicated; dangling aliases are excluded.
+
+### Changed
+
+- **Unified mtime-aware content read path**: a single entry point resolves the index mtime first, then serves memory → disk → remote, so a newer index always invalidates older cached content on read. Disk presence is authoritative — a cached memory entry is served only while its backing disk file still exists (deleting the disk file forces a re-fetch).
+- **5-minute lazy auto-detect**: the index TTL drops from 24 h to 5 min (override via `P2KB_INDEX_TTL`). The lazy TTL-expiry refresh now fetches **non-busted** to ride the Fastly CDN edge (scaling to many clients), completing a three-tier cache-busting posture: manual-index refresh busts, auto-index refresh does not, content fetch busts only on a sha256 mismatch.
+- **Dispatcher-aware cache location**: the cache root is resolved by walking up from the real executable to the `bin` directory (root = its parent), with container-tools detected structurally (binary under `bin/platforms/`). Container installs use `<root>/var/cache/p2kb-mcp`; standalone uses `<root>/.cache`. `P2KB_CACHE_DIR` still overrides.
+
+### Fixed
+
+- **Per-file mtime persistence on disk**: cached files are now stamped (`os.Chtimes`) with the index's commit-time mtime and read back on load, so disk-hydrated and disk-only entries report the correct mtime and can be flagged stale. Previously disk entries reported mtime 0 and were never invalidated (root cause of `stale_keys_found: 0`).
+- **Container-tools installer cache/backup defect**: the upgrade flow no longer archives the transient `var/cache` into `backup/prior`, caps backup nesting at exactly one level (previously nested geometrically), wipes the live cache on every install, and self-heals cruft left by older installer versions. Rollback integrity is preserved.
+
 ## [1.3.5] - 2026-04-27
 
 ### Fixed

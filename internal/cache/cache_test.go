@@ -1,12 +1,23 @@
 package cache
 
 import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
+
+// knownMtime is a whole-second Unix timestamp used across mtime tests.
+// os.Chtimes is second-resolution on most filesystems, so we use a clean value.
+const knownMtime int64 = 1700000000
 
 func TestNewManager(t *testing.T) {
 	m := NewManager()
@@ -30,24 +41,23 @@ func TestGetCacheDir(t *testing.T) {
 	}
 }
 
-func TestManagerMemoryCache(t *testing.T) {
-	m := NewManager()
-
-	// Initially empty
-	_, found := m.Get("test-key")
-	if found {
-		t.Error("Get should return false for non-existent key")
+// TestGetOrFetchMemoryTier verifies the memory tier of GetOrFetch: a fresh
+// memory entry whose disk file exists is served without touching the network.
+func TestGetOrFetchMemoryTier(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
 	}
 
-	// Add to memory cache directly
-	m.mu.Lock()
-	m.memory["test-key"] = cacheEntry{content: "test content", mtime: 12345}
-	m.mu.Unlock()
+	// Prime memory + disk so the disk-existence authority check passes.
+	primeCache(t, m, "test-key", "test content", knownMtime)
 
-	// Should find in memory
-	content, found := m.Get("test-key")
-	if !found {
-		t.Error("Get should return true for cached key")
+	// Path is deliberately bogus: if GetOrFetch falls through to the remote
+	// tier it will fail, proving the memory tier did not serve.
+	content, err := m.GetOrFetch("test-key", "bogus/should-not-fetch.yaml", "", knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch should serve from memory without fetching: %v", err)
 	}
 	if content != "test content" {
 		t.Errorf("content = %q, want 'test content'", content)
@@ -121,8 +131,8 @@ func TestManagerSaveAndLoadFromDisk(t *testing.T) {
 		memory:   make(map[string]cacheEntry),
 	}
 
-	// Save to disk
-	err := m.saveToDisk("test-key", "test content")
+	// Save to disk (mtime 0 is fine for the basic content round-trip test)
+	err := m.saveToDisk("test-key", "test content", 0)
 	if err != nil {
 		t.Fatalf("saveToDisk failed: %v", err)
 	}
@@ -273,5 +283,359 @@ func TestGetStatsEmpty(t *testing.T) {
 	}
 	if stats.DiskSizeBytes != 0 {
 		t.Errorf("DiskSizeBytes = %d, want 0", stats.DiskSizeBytes)
+	}
+}
+
+// TestMtimeRoundTrip verifies that a mtime written via saveToDisk is recovered
+// exactly (within filesystem second-resolution) by loadFromDisk, even after the
+// in-memory entry is evicted.
+func TestMtimeRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
+	}
+
+	const key = "mtime-roundtrip-key"
+
+	// Seed disk state with a known whole-second mtime.
+	if err := m.saveToDisk(key, "some yaml content", knownMtime); err != nil {
+		t.Fatalf("saveToDisk failed: %v", err)
+	}
+
+	// Evict the memory entry so loadFromDisk must re-hydrate from disk.
+	m.mu.Lock()
+	delete(m.memory, key)
+	m.mu.Unlock()
+
+	// loadFromDisk should recover the mtime from the filesystem stamp.
+	content, err := m.loadFromDisk(key)
+	if err != nil {
+		t.Fatalf("loadFromDisk failed: %v", err)
+	}
+	if content != "some yaml content" {
+		t.Errorf("content = %q, want %q", content, "some yaml content")
+	}
+
+	// The in-memory entry now populated by loadFromDisk must carry the mtime.
+	m.mu.RLock()
+	entry, ok := m.memory[key]
+	m.mu.RUnlock()
+
+	if !ok {
+		t.Fatal("loadFromDisk did not populate memory cache")
+	}
+	if entry.mtime != knownMtime {
+		t.Errorf("mtime after loadFromDisk = %d, want %d", entry.mtime, knownMtime)
+	}
+}
+
+// TestGetMtimeDiskFallback verifies that GetMtime returns the stamped mtime for
+// a key that exists only on disk (not in the memory map), rather than 0.
+func TestGetMtimeDiskFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{
+		cacheDir: tmpDir,
+		memory:   make(map[string]cacheEntry),
+	}
+
+	const key = "disk-only-key"
+
+	// Write the cache file with a known mtime. saveToDisk does not touch the
+	// memory map, so the key remains disk-only.
+	if err := m.saveToDisk(key, "disk only content", knownMtime); err != nil {
+		t.Fatalf("saveToDisk failed: %v", err)
+	}
+
+	// GetMtime must fall back to os.Stat and return the stamped mtime.
+	got := m.GetMtime(key)
+	if got != knownMtime {
+		t.Errorf("GetMtime (disk fallback) = %d, want %d", got, knownMtime)
+	}
+
+	// Sanity: a non-existent key must still return 0.
+	if zero := m.GetMtime("nonexistent-key"); zero != 0 {
+		t.Errorf("GetMtime for missing key = %d, want 0", zero)
+	}
+}
+
+// stubRemoteSeq points the remote tier (BaseContentURL) at a local httptest
+// server that serves bodies[i] on the i-th request (clamping to the last entry
+// for any further requests) and counts how many times it is hit. BaseContentURL
+// is a global, so tests using this helper must not call t.Parallel. The returned
+// pointer is the live hit counter; cleanup restores BaseContentURL and closes
+// the server.
+func stubRemoteSeq(t *testing.T, bodies ...string) *int32 {
+	t.Helper()
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		n := int(atomic.AddInt32(&hits, 1)) - 1
+		if n >= len(bodies) {
+			n = len(bodies) - 1
+		}
+		_, _ = io.WriteString(w, bodies[n])
+	}))
+	prev := BaseContentURL
+	BaseContentURL = srv.URL + "/"
+	t.Cleanup(func() {
+		BaseContentURL = prev
+		srv.Close()
+	})
+	return &hits
+}
+
+// stubRemote is the single-body case of stubRemoteSeq.
+func stubRemote(t *testing.T, body string) *int32 {
+	t.Helper()
+	return stubRemoteSeq(t, body)
+}
+
+// shrinkBackoff lowers the cache-busting retry backoff to keep mismatch tests
+// fast, restoring it on cleanup.
+func shrinkBackoff(t *testing.T) {
+	t.Helper()
+	prev := contentRetryBackoff
+	contentRetryBackoff = time.Millisecond
+	t.Cleanup(func() { contentRetryBackoff = prev })
+}
+
+// primeCache seeds both the disk and memory tiers for key at mtime.
+func primeCache(t *testing.T, m *Manager, key, content string, mtime int64) {
+	t.Helper()
+	if err := m.saveToDisk(key, content, mtime); err != nil {
+		t.Fatalf("saveToDisk failed: %v", err)
+	}
+	m.mu.Lock()
+	m.memory[key] = cacheEntry{content: content, mtime: mtime}
+	m.mu.Unlock()
+}
+
+// TestGetOrFetchRefetchesOnNewerIndex (invariant a): when the index mtime
+// advances past the cached entry, GetOrFetch must re-fetch from remote.
+func TestGetOrFetchRefetchesOnNewerIndex(t *testing.T) {
+	hits := stubRemote(t, "fresh remote content")
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	primeCache(t, m, key, "stale content", knownMtime)
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime+100)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 1 {
+		t.Errorf("remote fetches = %d, want 1 (newer index must refetch)", got)
+	}
+	if want := filter.FilterMetadata("fresh remote content"); content != want {
+		t.Errorf("content = %q, want %q", content, want)
+	}
+}
+
+// TestGetOrFetchRefetchesWhenDiskFileDeleted (invariant b): a fresh memory
+// entry must NOT be served once its backing disk file is gone — disk presence
+// is authoritative, so a deleted file forces a re-fetch.
+func TestGetOrFetchRefetchesWhenDiskFileDeleted(t *testing.T) {
+	hits := stubRemote(t, "remote after delete")
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	primeCache(t, m, key, "cached content", knownMtime)
+
+	// Remove the disk file but leave the (still fresh) memory entry in place.
+	if err := os.Remove(m.cachePath(key)); err != nil {
+		t.Fatalf("removing disk file: %v", err)
+	}
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 1 {
+		t.Errorf("remote fetches = %d, want 1 (deleted disk file must force refetch)", got)
+	}
+	if want := filter.FilterMetadata("remote after delete"); content != want {
+		t.Errorf("content = %q, want %q", content, want)
+	}
+}
+
+// TestGetOrFetchServesFreshCacheWithoutNetwork (invariant c): a cache that is
+// at least as new as the index is served with zero network calls.
+func TestGetOrFetchServesFreshCacheWithoutNetwork(t *testing.T) {
+	hits := stubRemote(t, "should-not-be-fetched")
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	primeCache(t, m, key, "cached content", knownMtime)
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 0 {
+		t.Errorf("remote fetches = %d, want 0 (fresh cache must not hit network)", got)
+	}
+	if content != "cached content" {
+		t.Errorf("content = %q, want %q", content, "cached content")
+	}
+}
+
+// TestGetOrFetchServesFreshDiskWithoutNetwork covers the disk tier: with the
+// memory map empty but a fresh disk file present, GetOrFetch serves from disk
+// (and re-hydrates memory) without touching the network.
+func TestGetOrFetchServesFreshDiskWithoutNetwork(t *testing.T) {
+	hits := stubRemote(t, "should-not-be-fetched")
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	// Disk only — memory map left empty.
+	if err := m.saveToDisk(key, "disk content", knownMtime); err != nil {
+		t.Fatalf("saveToDisk failed: %v", err)
+	}
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 0 {
+		t.Errorf("remote fetches = %d, want 0 (fresh disk must not hit network)", got)
+	}
+	if content != "disk content" {
+		t.Errorf("content = %q, want %q", content, "disk content")
+	}
+	// Memory should now be hydrated from disk.
+	m.mu.RLock()
+	_, ok := m.memory[key]
+	m.mu.RUnlock()
+	if !ok {
+		t.Error("disk-tier hit did not hydrate memory cache")
+	}
+}
+
+// TestSHA256HexFormat sanity-checks the digest helper: lowercase, 64 hex chars,
+// matching crypto/sha256 for a known input.
+func TestSHA256HexFormat(t *testing.T) {
+	// echo -n "abc" | sha256sum
+	const want = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	if got := sha256Hex("abc"); got != want {
+		t.Errorf("sha256Hex(\"abc\") = %q, want %q", got, want)
+	}
+}
+
+// TestGetOrFetchVerifiedMatchCachesAndServes: a download whose sha256 matches
+// the index digest is fetched exactly once, then filtered, cached, and served.
+func TestGetOrFetchVerifiedMatchCachesAndServes(t *testing.T) {
+	const body = "verified content"
+	hits := stubRemote(t, body)
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", sha256Hex(body), knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 1 {
+		t.Errorf("remote fetches = %d, want 1 (verified match should not retry)", got)
+	}
+	if want := filter.FilterMetadata(body); content != want {
+		t.Errorf("content = %q, want %q", content, want)
+	}
+	// Cached to memory and disk.
+	m.mu.RLock()
+	_, inMem := m.memory[key]
+	m.mu.RUnlock()
+	if !inMem {
+		t.Error("verified content was not cached in memory")
+	}
+	if !m.diskFileExists(key) {
+		t.Error("verified content was not written to disk")
+	}
+}
+
+// TestGetOrFetchVerifiedMismatchReturnsUnavailable: a download whose sha256
+// never matches busts the CDN (multiple fetches) and ultimately returns a
+// *VerificationError carrying expected/actual, caching nothing.
+func TestGetOrFetchVerifiedMismatchReturnsUnavailable(t *testing.T) {
+	shrinkBackoff(t)
+	const served = "tampered or stale bytes"
+	hits := stubRemote(t, served)
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	expected := sha256Hex("the real content")
+	_, err := m.GetOrFetch(key, "any/path.yaml", expected, knownMtime)
+	if err == nil {
+		t.Fatal("expected a verification error, got nil")
+	}
+
+	var verr *VerificationError
+	if !errors.As(err, &verr) {
+		t.Fatalf("error type = %T, want *VerificationError: %v", err, err)
+	}
+	if verr.Expected != expected {
+		t.Errorf("verr.Expected = %q, want %q", verr.Expected, expected)
+	}
+	if verr.Actual != sha256Hex(served) {
+		t.Errorf("verr.Actual = %q, want %q", verr.Actual, sha256Hex(served))
+	}
+
+	// It must have cache-busted: more than the single non-busted attempt.
+	if got := atomic.LoadInt32(hits); int(got) != contentFetchAttempts {
+		t.Errorf("remote fetches = %d, want %d (one normal + busted retries)", got, contentFetchAttempts)
+	}
+
+	// Nothing cached — the slot stays empty so the next request retries.
+	m.mu.RLock()
+	_, inMem := m.memory[key]
+	m.mu.RUnlock()
+	if inMem {
+		t.Error("mismatched content must not be cached in memory")
+	}
+	if m.diskFileExists(key) {
+		t.Error("mismatched content must not be written to disk")
+	}
+}
+
+// TestGetOrFetchVerifiedBustRecovers: the first (edge) fetch returns stale
+// bytes, but a cache-busting retry gets the correct bytes — the content is then
+// served, proving bust-on-mismatch recovers from CDN propagation lag.
+func TestGetOrFetchVerifiedBustRecovers(t *testing.T) {
+	shrinkBackoff(t)
+	const good = "the real content"
+	hits := stubRemoteSeq(t, "stale edge bytes", good)
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", sha256Hex(good), knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 2 {
+		t.Errorf("remote fetches = %d, want 2 (one stale, one busted recovery)", got)
+	}
+	if want := filter.FilterMetadata(good); content != want {
+		t.Errorf("content = %q, want %q", content, want)
+	}
+	if !m.diskFileExists(key) {
+		t.Error("recovered content was not cached to disk")
+	}
+}
+
+// TestGetOrFetchEmptySHASkipsVerification: with no index digest (pre-3.5.0),
+// the content is fetched once and served without any verification, even though
+// it would not match an arbitrary hash.
+func TestGetOrFetchEmptySHASkipsVerification(t *testing.T) {
+	hits := stubRemote(t, "unverified legacy content")
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	if err != nil {
+		t.Fatalf("GetOrFetch: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 1 {
+		t.Errorf("remote fetches = %d, want 1 (legacy path: single non-busted fetch)", got)
+	}
+	if want := filter.FilterMetadata("unverified legacy content"); content != want {
+		t.Errorf("content = %q, want %q", content, want)
 	}
 }

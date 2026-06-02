@@ -9,7 +9,9 @@ import (
 
 // TestConcurrentGet tests the fix for the RLock upgrade deadlock.
 // This reproduces the exact scenario that caused the original crash:
-// multiple parallel Get() calls that all need to load from disk.
+// multiple parallel GetOrFetch() calls that all need to load from disk.
+// indexMtime is 0 so the freshly-written disk files always satisfy the disk
+// tier and no goroutine reaches the network.
 func TestConcurrentGet(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -54,13 +56,13 @@ func TestConcurrentGet(t *testing.T) {
 		wg.Add(1)
 		go func(k string) {
 			defer wg.Done()
-			content, found := m.Get(k)
-			if !found {
-				errors <- nil // Some may not be found, that's ok
+			content, err := m.GetOrFetch(k, k+".yaml", "", 0)
+			if err != nil {
+				errors <- err
 				return
 			}
 			if content == "" {
-				t.Errorf("Get(%s) returned empty content", k)
+				t.Errorf("GetOrFetch(%s) returned empty content", k)
 			}
 		}(key)
 	}
@@ -69,8 +71,14 @@ func TestConcurrentGet(t *testing.T) {
 	wg.Wait()
 	close(errors)
 
+	for err := range errors {
+		if err != nil {
+			t.Errorf("GetOrFetch returned error: %v", err)
+		}
+	}
+
 	// If we get here without deadlock, the test passes!
-	t.Log("All concurrent Get() calls completed without deadlock")
+	t.Log("All concurrent GetOrFetch() calls completed without deadlock")
 }
 
 // TestConcurrentGetMemoryAndDisk tests mixed memory/disk access patterns.
@@ -82,18 +90,20 @@ func TestConcurrentGetMemoryAndDisk(t *testing.T) {
 		memory:   make(map[string]cacheEntry),
 	}
 
-	// Pre-populate some keys in memory
-	m.memory["key1"] = cacheEntry{content: "memory content 1", mtime: 1000}
-	m.memory["key2"] = cacheEntry{content: "memory content 2", mtime: 1000}
-	m.memory["key3"] = cacheEntry{content: "memory content 3", mtime: 1000}
-
-	// Create disk cache entries for other keys
 	cacheDir := filepath.Join(tmpDir, "cache")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		t.Fatalf("failed to create cache dir: %v", err)
 	}
 
-	for i := 4; i <= 6; i++ {
+	// Pre-populate keys 1-3 in memory. They also get disk files below so the
+	// disk-existence authority check passes and the memory tier serves them.
+	m.memory["key1"] = cacheEntry{content: "memory content 1", mtime: 1000}
+	m.memory["key2"] = cacheEntry{content: "memory content 2", mtime: 1000}
+	m.memory["key3"] = cacheEntry{content: "memory content 3", mtime: 1000}
+
+	// Create disk cache entries for every key so no goroutine reaches the
+	// network: 1-3 exercise the memory tier, 4-6 the disk tier.
+	for i := 1; i <= 6; i++ {
 		key := "key" + string(rune('0'+i))
 		cachePath := filepath.Join(cacheDir, key+".yaml")
 		if err := os.WriteFile(cachePath, []byte("disk content "+key), 0644); err != nil {
@@ -111,7 +121,7 @@ func TestConcurrentGetMemoryAndDisk(t *testing.T) {
 			wg.Add(1)
 			go func(k string) {
 				defer wg.Done()
-				m.Get(k)
+				_, _ = m.GetOrFetch(k, k+".yaml", "", 0)
 			}(key)
 		}
 	}

@@ -73,12 +73,17 @@ The index (`p2kb-index.json`) has this structure:
   "files": {
     "p2kbPasm2Mov": {
       "path": "deliverables/ai/P2/pasm2/instructions/mov.yaml",
-      "mtime": 1764449566
+      "mtime": 1764449566,
+      "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
     },
     ...
   }
 }
 ```
+
+**Field notes:**
+- `mtime` — the file's git commit time (Unix seconds). It is the discrete staleness signal: when the index's `mtime` for a key exceeds the locally cached file's stamped mtime, the cached content is invalidated on the next read.
+- `sha256` — *optional* lowercase-hex digest of the **raw content blob** (pre-filter). Used for transport-integrity verification of the downloaded file (see [Content Hash Verification](#content-hash-verification)). Absent in pre-3.5.0 indexes; when absent, verification is skipped (graceful degrade — the generator and client deploy independently).
 
 ---
 
@@ -98,6 +103,34 @@ Filter regex pattern:
 ```
 ^\s*(last_updated|enhancement_source|documentation_source|documentation_level|manual_extraction_date):
 ```
+
+---
+
+## Content Hash Verification
+
+When the index carries a `sha256` for a file entry, the client verifies the
+**raw downloaded bytes** against it **before** any metadata filtering — the
+generator hashes the raw blob, so the digest is filter-agnostic. Verification is
+purely a transport-integrity check (detecting a truncated download or a stale CDN
+edge), decoupled from filtering.
+
+Flow on a content fetch (the remote tier of the read path):
+
+1. Fetch the raw file (normal, non-cache-busted request).
+2. If the index entry has no `sha256` (pre-3.5.0) → skip verification, filter and cache.
+3. Compute `sha256(raw)` and compare to the index digest.
+   - **Match** → filter metadata, cache to memory + disk, serve.
+   - **Mismatch** → do **not** cache. Re-fetch with cache-busting (`?t=<nano>` +
+     no-cache headers) to defeat CDN propagation lag, then re-verify. Bounded
+     retries with a short backoff.
+   - **Persistent mismatch** (after retries) → return a distinct
+     *"temporarily unavailable — verification failed"* result (JSON-RPC error
+     `-32001`) carrying `expected_sha256`/`actual_sha256`. The cache slot is left
+     empty so the next natural request retries. This is deliberately **not**
+     conflated with not-found or network errors.
+
+Cache-busting fires **only** on a verification mismatch — never on the normal
+content fetch.
 
 ---
 
@@ -178,6 +211,13 @@ Search for keys matching a term (case-insensitive).
   "term": "mov"
 }
 ```
+
+**Alias-aware:** the term is matched against both canonical file keys **and** the
+keys of the `aliases` map. A term matching only an alias name (e.g. `RCFAST`)
+resolves to that alias's target canonical key(s) (e.g. `p2kbArchClockSystem`), so
+alias-only entries are findable. Results are deduplicated (a term hitting a key
+both directly and via an alias yields one result), and dangling aliases (targets
+absent from `files`) are excluded.
 
 ---
 
@@ -269,28 +309,38 @@ Fetch multiple keys in one call. Efficient for related lookups.
 
 #### `p2kb_refresh`
 
-Force refresh of index and optionally invalidate cache.
+Force refresh of index and invalidate cache. Cache invalidation escalates from
+selective (default) to a full flush.
 
 **Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `invalidate_cache` | boolean | No | Clear all cached YAMLs (default: false) |
-| `prefetch_common` | boolean | No | Prefetch common keys after refresh (default: true) |
+| `include_obex` | boolean | No | Also refresh the OBEX index / clear stale OBEX cache (default: false) |
+| `flush` | boolean | No | Nuclear option: wipe the **entire** content cache (all memory + disk) instead of selectively removing only stale entries. With `include_obex`, the OBEX cache is fully cleared too. (default: false) |
 
 **Returns:**
 ```json
 {
   "refreshed": true,
-  "version": "3.2.1",
+  "flushed": false,
+  "stale_keys_found": 4,
+  "cache_entries_invalidated": 4,
+  "index_version": "3.2.1",
   "total_entries": 970
 }
 ```
 
 **Behavior (internal):**
-1. Fetch new index (ignore TTL)
-2. Compare `mtime` values with cached files
-3. Invalidate cache entries where remote mtime > local mtime
-4. If `prefetch_common`, fetch the 3 guide keys
+1. Fetch a new index with cache-busting (`?t=<nano>` + no-cache headers) — the
+   manual refresh always bypasses the CDN, unlike the lazy auto-detect.
+2. **Selective** (default, `flush:false`): compare index `mtime` values with the
+   stamped mtime of cached files and invalidate only the entries the index has
+   advanced past.
+3. **Full flush** (`flush:true`): clear all memory + disk content cache
+   unconditionally; with `include_obex`, also clear the OBEX cache.
+
+Escalation ladder: lazy auto-detect (no user action) → manual `p2kb_refresh`
+(selective) → `p2kb_refresh flush:true` (full wipe).
 
 ---
 
@@ -382,30 +432,59 @@ Return usage information.
 ### Directory Structure
 
 ```
-~/.p2kb-mcp/
+<cache-root>/
 ├── index/
 │   ├── p2kb-index.json          # Decompressed index
 │   └── p2kb-index.meta          # Index metadata (fetch time, etag)
 ├── cache/
-│   ├── p2kbPasm2Mov.yaml        # Cached, filtered YAMLs
+│   ├── p2kbPasm2Mov.yaml        # Cached, filtered YAMLs (fs mtime stamped to the index mtime)
 │   ├── p2kbPasm2Add.yaml
 │   └── ...
-├── refs/
-│   ├── propeller-knowledge-root.yaml
-│   └── ai-instructions.yaml
-└── mcp.log                      # Optional debug log
+└── ...
 ```
+
+**Cache-root resolution (dispatcher-aware).** The location is resolved
+deterministically by walking up from the resolved executable to the directory
+named `bin`; the install root is that directory's parent. Detection is
+structural, not substring-based:
+
+1. `P2KB_CACHE_DIR` environment variable, if set (highest priority).
+2. **Container-tools** install — the binary sits at `<root>/bin/platforms/<binary>`
+   (immediate parent dir named `platforms`, reached through the common-name
+   dispatcher) → cache root is `<root>/var/cache/p2kb-mcp`.
+3. **Standalone** install — the binary sits at `<root>/bin/<binary>` (no
+   `platforms/`) → cache root is `<root>/.cache`.
+4. **Windows** → `%LOCALAPPDATA%\p2kb-mcp\cache\`.
+
+The cached `.yaml` files have their filesystem mtime stamped to the index's
+commit-time `mtime`, so discrete staleness survives process restarts (a
+disk-only entry still reports the correct mtime). Disk presence is
+authoritative: a cached memory entry is served only while its backing disk file
+still exists.
 
 ### Index Refresh Logic
 
 ```
-INDEX_TTL = 24 hours (86400 seconds)
+INDEX_TTL = 5 minutes (300 seconds)   # override with P2KB_INDEX_TTL (seconds)
 
 on any tool call:
   if index not exists OR index age > INDEX_TTL:
-    fetch_index()
-    invalidate_stale_cache()
+    fetch_index(bust=false)            # lazy auto-detect: ride the CDN edge
+    invalidate_stale_cache()           # via the mtime-aware read path
 ```
+
+The 5-minute TTL makes a KB push visible without a manual refresh. The server is
+a request-driven stdio loop with no background thread, so this is an on-access
+check via the TTL, not a timer (idle → no checks; busy → at most one check per
+window).
+
+**Three-tier cache-busting posture:**
+
+| Fetch | Cache-busts? | Why |
+|-------|--------------|-----|
+| Manual index refresh (`p2kb_refresh`) | **Yes** | User explicitly wants the freshest index now. |
+| Lazy auto-detect index refresh (TTL expiry) | **No** | Rides the Fastly edge; scales to N clients with origin load independent of client count, and can't be fresher than the CDN's raw TTL anyway. |
+| Content file fetch | **No** (normally) | Busts **only** on a sha256 verification mismatch (see [Content Hash Verification](#content-hash-verification)). |
 
 ### Cache Invalidation on Index Update
 
@@ -447,6 +526,16 @@ Suggestion algorithm: Find keys containing a substring of the requested key.
 
 1. If cached content exists → return cached with `stale: true` flag
 2. If no cache → return error with retry suggestion
+
+### Content Verification Failure
+
+Distinct from not-found and network errors: the file downloaded but its `sha256`
+did not match the index after cache-busting retries (typically transient CDN
+propagation lag mid-update). Returned as JSON-RPC error `-32001`
+("temporarily unavailable — verification failed") with `expected_sha256` and
+`actual_sha256` in the error data. Nothing is cached; the client should retry
+shortly rather than treat the key as missing. See
+[Content Hash Verification](#content-hash-verification).
 
 ### Index Corruption
 

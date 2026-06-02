@@ -2,11 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/ironsheep/p2kb-mcp/internal/cache"
 )
 
 // ToolCallParams represents the params for a tools/call request.
@@ -120,6 +123,24 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 func (s *Server) getContentWithRelated(id interface{}, key string, resolvedFrom string) *MCPResponse {
 	content, err := s.getContent(key)
 	if err != nil {
+		// A verification failure is distinct from not-found / network errors:
+		// the file was downloaded but its sha256 did not match the index after
+		// cache-busting retries (likely transient CDN propagation lag). Surface
+		// it as "temporarily unavailable" so the client retries rather than
+		// treating the key as missing.
+		var verr *cache.VerificationError
+		if errors.As(err, &verr) {
+			return s.errorResponse(id, -32001,
+				fmt.Sprintf("Content for '%s' is temporarily unavailable — verification failed", key),
+				map[string]interface{}{
+					"error":           verr.Error(),
+					"key":             key,
+					"expected_sha256": verr.Expected,
+					"actual_sha256":   verr.Actual,
+					"hint":            "The source is likely mid-update; retry shortly. Not a missing key.",
+				})
+		}
+
 		return s.errorResponse(id, -32000, fmt.Sprintf("Failed to fetch content for '%s'", key),
 			map[string]interface{}{
 				"error":       err.Error(),
@@ -533,6 +554,7 @@ func (s *Server) handleVersion(id interface{}) *MCPResponse {
 func (s *Server) handleRefresh(id interface{}, args json.RawMessage) *MCPResponse {
 	var params struct {
 		IncludeOBEX bool `json:"include_obex"`
+		Flush       bool `json:"flush"`
 	}
 
 	if len(args) > 0 {
@@ -541,28 +563,44 @@ func (s *Server) handleRefresh(id interface{}, args json.RawMessage) *MCPRespons
 		}
 	}
 
-	// Refresh index
+	// Refresh index (always, regardless of flush mode)
 	if err := s.indexManager.Refresh(); err != nil {
 		return s.errorResponse(id, -32000, "Failed to refresh index", err.Error())
 	}
 
-	// Detect and invalidate stale cache entries
-	cachedKeys := s.cacheManager.GetCachedKeys()
-	staleKeys := s.indexManager.GetStaleKeys(cachedKeys, s.cacheManager.GetMtime)
-	invalidatedCount := s.cacheManager.InvalidateKeys(staleKeys)
-
 	result := map[string]interface{}{
-		"refreshed":            true,
-		"stale_keys_found":     len(staleKeys),
-		"cache_entries_invalidated": invalidatedCount,
+		"refreshed": true,
+		"flushed":   params.Flush,
 	}
 
-	// Optionally refresh OBEX
-	if params.IncludeOBEX {
-		if err := s.obexManager.Refresh(); err != nil {
-			result["obex_error"] = err.Error()
-		} else {
+	if params.Flush {
+		// Full flush: count keys before wipe, then clear all memory + disk cache
+		preFlushedKeys := len(s.cacheManager.GetCachedKeys())
+		s.cacheManager.Clear()
+		result["cache_entries_invalidated"] = preFlushedKeys
+		result["stale_keys_found"] = 0
+
+		// Optionally also clear OBEX cache
+		if params.IncludeOBEX {
+			obexCleared := s.obexManager.ClearCache()
+			result["obex_cache_entries_cleared"] = obexCleared
 			result["obex_refreshed"] = true
+		}
+	} else {
+		// Selective invalidation: detect and remove only stale entries
+		cachedKeys := s.cacheManager.GetCachedKeys()
+		staleKeys := s.indexManager.GetStaleKeys(cachedKeys, s.cacheManager.GetMtime)
+		invalidatedCount := s.cacheManager.InvalidateKeys(staleKeys)
+		result["stale_keys_found"] = len(staleKeys)
+		result["cache_entries_invalidated"] = invalidatedCount
+
+		// Optionally refresh OBEX
+		if params.IncludeOBEX {
+			if err := s.obexManager.Refresh(); err != nil {
+				result["obex_error"] = err.Error()
+			} else {
+				result["obex_refreshed"] = true
+			}
 		}
 	}
 
@@ -576,24 +614,19 @@ func (s *Server) handleRefresh(id interface{}, args json.RawMessage) *MCPRespons
 // Helper methods
 
 func (s *Server) getContent(key string) (string, error) {
-	// Check cache first
-	if content, found := s.cacheManager.Get(key); found {
-		return content, nil
-	}
-
-	// Get path from index
-	path, mtime, err := s.indexManager.GetKeyPath(key)
+	// Resolve the index mtime FIRST so the cache lookup is always mtime-aware:
+	// a newer index must invalidate older cached content on read. GetKeyPath
+	// also refreshes the index when its TTL has expired, and returns the
+	// content sha256 (empty for pre-3.5.0 indexes) for transport verification.
+	path, mtime, sha256, err := s.indexManager.GetKeyPath(key)
 	if err != nil {
 		return "", err
 	}
 
-	// Fetch from remote
-	content, err := s.cacheManager.FetchAndCache(key, path, mtime)
-	if err != nil {
-		return "", err
-	}
-
-	return content, nil
+	// Single mtime-aware entry point: memory -> disk -> remote, with disk
+	// presence authoritative. Never bypasses the index mtime; verifies the
+	// download against sha256 when the index carries one.
+	return s.cacheManager.GetOrFetch(key, path, sha256, mtime)
 }
 
 func (s *Server) successResponse(id interface{}, result interface{}) *MCPResponse {

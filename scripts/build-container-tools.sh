@@ -409,6 +409,14 @@ HAS_PRIOR_MCP_JSON=false
 if [ -d "$TARGET/$YOUR_MCP" ]; then
     info "Backing up previous installation..."
 
+    # Self-healing purge: remove cruft left by older buggy installer versions
+    # (cache wrongly archived under backup/prior/var, and geometrically nested
+    # backup/prior/backup trees).  Guarded so a missing path is a no-op.
+    if [ -d "$TARGET/$YOUR_MCP/backup" ]; then
+        find "$TARGET/$YOUR_MCP/backup" -type d -name "cache" -exec $SUDO rm -rf {} + 2>/dev/null || true
+        $SUDO rm -rf "$TARGET/$YOUR_MCP/backup/prior/backup" 2>/dev/null || true
+    fi
+
     # Remember if mcp.json exists (we'll copy it after installing new version)
     [ -f "$TARGET/etc/mcp.json" ] && HAS_PRIOR_MCP_JSON=true
 
@@ -421,11 +429,17 @@ fi
 # 3. Install MCP directory
 info "Installing $YOUR_MCP..."
 $SUDO cp -r "$SCRIPT_DIR" "$TARGET/$YOUR_MCP"
+# Every install starts with a clean cache; var/cache rebuilds lazily at runtime.
+$SUDO rm -rf "$TARGET/$YOUR_MCP/var/cache"
 
 # 4. Move prior installation into backup/prior/ and save mcp.json backup
 if [ -n "$PRIOR_TEMP" ] && [ -d "$PRIOR_TEMP" ]; then
     $SUDO mkdir -p "$TARGET/$YOUR_MCP/backup"
     $SUDO rm -rf "$TARGET/$YOUR_MCP/backup/prior"
+    # Strip transient cache (reconstructible) and any nested backup tree from the
+    # prior snapshot before archiving — keeps backup/prior lean and caps nesting
+    # at exactly one level (rollback only ever reads backup/prior, never deeper).
+    $SUDO rm -rf "$PRIOR_TEMP/var" "$PRIOR_TEMP/backup"
     $SUDO mv "$PRIOR_TEMP" "$TARGET/$YOUR_MCP/backup/prior"
     info "Prior installation saved to $YOUR_MCP/backup/prior/"
 

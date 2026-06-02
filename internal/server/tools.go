@@ -177,6 +177,11 @@ Automatically detects and removes stale cached items based on index timestamps.`
 						"description": "Also refresh OBEX index and clear stale OBEX cache (default: false)",
 						"default":     false,
 					},
+					"flush": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Nuclear option: wipe the ENTIRE content cache (all memory + disk) instead of selectively removing only stale entries. Use when cache may be corrupt or after a major KB change. Escalation ladder: normal refresh (selective) -> flush:true (full wipe). (default: false)",
+						"default":     false,
+					},
 				},
 			},
 		},
