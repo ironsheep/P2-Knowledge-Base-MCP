@@ -1,4 +1,4 @@
-.PHONY: build test clean install all help lint dist test-short test-live test-coverage fmt vuln deps standalone container-tools packages clean-all
+.PHONY: build test clean install all help lint dist test-short test-live test-coverage test-installer fmt vuln deps standalone container-tools packages clean-all
 
 # Version info
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -42,9 +42,14 @@ help:
 build:
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BINARY) ./cmd/p2kb-mcp
 
-# Run all tests
+# Run all tests (Go suite + installer hygiene shell test)
 test:
 	go test -v -race ./...
+	bash scripts/test-installer-hygiene.sh
+
+# Installer cache/backup hygiene regression test (shell; no Go)
+test-installer:
+	bash scripts/test-installer-hygiene.sh
 
 # Run fast tests only (no network)
 test-short:

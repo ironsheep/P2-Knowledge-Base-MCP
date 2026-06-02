@@ -3,13 +3,17 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/ironsheep/p2kb-mcp/internal/cache"
 	"github.com/ironsheep/p2kb-mcp/internal/index"
 )
 
@@ -930,6 +934,168 @@ func TestHandleRefreshSelectivePathUnchanged(t *testing.T) {
 	}
 	if _, ok := resultMap["cache_entries_invalidated"]; !ok {
 		t.Error("result missing cache_entries_invalidated on selective path")
+	}
+}
+
+// sha256HexT computes the lowercase-hex sha256 of s, mirroring the cache layer's
+// transport-verification digest so tests can build matching/mismatching indexes.
+func sha256HexT(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// newServerWithFilesAndContent builds a server whose index (served through the
+// index.IndexURL seam) carries the given file entries, and whose content fetches
+// (the cache.BaseContentURL seam) are answered by contentHandler. The cache dir
+// is isolated in a temp dir. No live network is touched.
+func newServerWithFilesAndContent(t *testing.T, files map[string]interface{}, contentHandler http.HandlerFunc) (*Server, func()) {
+	t.Helper()
+
+	idx := map[string]interface{}{
+		"system":     map[string]interface{}{"version": "test-1.0", "generated": "2024-01-01T00:00:00Z"},
+		"categories": map[string]interface{}{},
+		"files":      files,
+		"aliases":    map[string]interface{}{},
+	}
+	raw, err := json.Marshal(idx)
+	if err != nil {
+		t.Fatalf("marshal index: %v", err)
+	}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(raw); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	payload := buf.Bytes()
+
+	idxSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(payload)
+	}))
+	contentSrv := httptest.NewServer(contentHandler)
+
+	origIdx := index.IndexURL
+	origContent := cache.BaseContentURL
+	index.IndexURL = idxSrv.URL
+	cache.BaseContentURL = contentSrv.URL + "/"
+
+	tmpDir := t.TempDir()
+	if err := os.Setenv("P2KB_CACHE_DIR", tmpDir); err != nil {
+		t.Fatalf("setenv P2KB_CACHE_DIR: %v", err)
+	}
+
+	srv := New("1.0.0")
+	cleanup := func() {
+		idxSrv.Close()
+		contentSrv.Close()
+		index.IndexURL = origIdx
+		cache.BaseContentURL = origContent
+		os.Unsetenv("P2KB_CACHE_DIR")
+	}
+	return srv, cleanup
+}
+
+// TestGetContentVerificationFailureMapsTo32001 covers the user-facing half of the
+// hash-validation feature: when a downloaded file's sha256 never matches the
+// index, the p2kb_get path must surface the distinct -32001 "temporarily
+// unavailable" error carrying expected/actual digests — NOT a generic failure.
+func TestGetContentVerificationFailureMapsTo32001(t *testing.T) {
+	const correct = "real: yaml content\n"
+	served := "TAMPERED: not the real content\n"
+	files := map[string]interface{}{
+		"p2kbVerifyMe": map[string]interface{}{
+			"path":   "verify/me.yaml",
+			"mtime":  1700000000,
+			"sha256": sha256HexT(correct),
+		},
+	}
+	srv, cleanup := newServerWithFilesAndContent(t, files, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, served) // never matches the index sha256
+	})
+	defer cleanup()
+
+	resp := srv.getContentWithRelated(1, "p2kbVerifyMe", "")
+	if resp.Error == nil {
+		t.Fatal("expected an error for sha256 mismatch, got success")
+	}
+	if resp.Error.Code != -32001 {
+		t.Errorf("error code = %d, want -32001 (verification failure)", resp.Error.Code)
+	}
+	data, ok := resp.Error.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("error data is not a map: %T", resp.Error.Data)
+	}
+	if data["expected_sha256"] != sha256HexT(correct) {
+		t.Errorf("expected_sha256 = %v, want %s", data["expected_sha256"], sha256HexT(correct))
+	}
+	if data["actual_sha256"] != sha256HexT(served) {
+		t.Errorf("actual_sha256 = %v, want %s (hash of served bytes)", data["actual_sha256"], sha256HexT(served))
+	}
+}
+
+// TestGetContentNetworkErrorMapsTo32000 is the distinctness half: a non-
+// verification failure (here HTTP 500 on a file with no sha256, so no
+// verification) must map to the generic -32000, NOT -32001. This guards the
+// errors.As discrimination from collapsing the two error classes.
+func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
+	files := map[string]interface{}{
+		"p2kbPlainFail": map[string]interface{}{
+			"path":  "plain/fail.yaml",
+			"mtime": 1700000000,
+			// no sha256 -> legacy path, verification skipped
+		},
+	}
+	srv, cleanup := newServerWithFilesAndContent(t, files, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	defer cleanup()
+
+	resp := srv.getContentWithRelated(1, "p2kbPlainFail", "")
+	if resp.Error == nil {
+		t.Fatal("expected an error for HTTP 500, got success")
+	}
+	if resp.Error.Code != -32000 {
+		t.Errorf("error code = %d, want -32000 (generic, distinct from -32001)", resp.Error.Code)
+	}
+}
+
+// TestHandleRefreshFlushClearsObexCache covers the flush + include_obex path:
+// it must clear the OBEX disk cache, not just the content cache.
+func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
+	srv, cleanup := newServerWithLocalIndex(t)
+	defer cleanup()
+
+	// Seed the OBEX disk cache with one object.
+	cacheDir := os.Getenv("P2KB_CACHE_DIR")
+	obexObjects := filepath.Join(cacheDir, "obex", "objects")
+	if err := os.MkdirAll(obexObjects, 0755); err != nil {
+		t.Fatalf("mkdir obex objects: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(obexObjects, "obj123.yaml"), []byte("title: thing"), 0644); err != nil {
+		t.Fatalf("write obex object: %v", err)
+	}
+	if _, disk, _ := srv.obexManager.GetCacheStats(); disk == 0 {
+		t.Fatal("pre-flush: expected seeded OBEX disk cache, got 0")
+	}
+
+	args, _ := json.Marshal(map[string]interface{}{"flush": true, "include_obex": true})
+	resp := srv.handleRefresh(1, args)
+	if resp.Error != nil {
+		t.Fatalf("handleRefresh(flush+obex) returned error: %v", resp.Error)
+	}
+
+	if _, disk, _ := srv.obexManager.GetCacheStats(); disk != 0 {
+		t.Errorf("post-flush: OBEX disk cache not cleared, %d objects remain", disk)
+	}
+	resultMap := extractResultMap(t, resp)
+	if resultMap["obex_refreshed"] != true {
+		t.Errorf("result[obex_refreshed] = %v, want true", resultMap["obex_refreshed"])
+	}
+	if _, ok := resultMap["obex_cache_entries_cleared"]; !ok {
+		t.Error("result missing obex_cache_entries_cleared on flush+obex path")
 	}
 }
 

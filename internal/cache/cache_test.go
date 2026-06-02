@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -617,6 +618,34 @@ func TestGetOrFetchVerifiedBustRecovers(t *testing.T) {
 	}
 	if !m.diskFileExists(key) {
 		t.Error("recovered content was not cached to disk")
+	}
+}
+
+// TestGetOrFetchCacheHitSkipsVerification locks an important property of the
+// hash-validation feature: verification is transport-only — it gates the remote
+// download, NOT every read. A fresh cache hit must be served without re-fetching
+// or re-hashing, even if the supplied digest would not match the cached bytes.
+// (If a future refactor moved verification onto the read path, this fails.)
+func TestGetOrFetchCacheHitSkipsVerification(t *testing.T) {
+	hits := stubRemote(t, "remote body that must never be fetched")
+	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	const key = "k"
+
+	// Prime memory + disk fresh (mtime >= indexMtime, disk file present).
+	primeCache(t, m, key, "cached body", knownMtime)
+
+	// Deliberately pass a digest that does NOT match the cached content; a fresh
+	// cache hit must still serve it and never reach the verifying remote tier.
+	wrongSha := strings.Repeat("a", 64)
+	content, err := m.GetOrFetch(key, "any/path.yaml", wrongSha, knownMtime)
+	if err != nil {
+		t.Fatalf("cache hit should serve without verifying: %v", err)
+	}
+	if got := atomic.LoadInt32(hits); got != 0 {
+		t.Errorf("remote fetches = %d, want 0 (cache hit must not re-fetch/re-verify)", got)
+	}
+	if content != "cached body" {
+		t.Errorf("content = %q, want %q", content, "cached body")
 	}
 }
 

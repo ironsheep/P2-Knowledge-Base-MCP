@@ -1445,3 +1445,59 @@ func TestEnsureIndexTTLWindow(t *testing.T) {
 		t.Errorf("EnsureIndex with stale index should hit the server once; got %d hits", hits())
 	}
 }
+
+// TestEnsureIndexLazyFetchIsNonBusted locks the three-tier busting WIRING at the
+// caller level: the lazy TTL-expiry refresh (EnsureIndex) must ride the CDN edge
+// — no cache-busting query param, no no-cache headers — so it scales across
+// clients. (TestFetchIndexDataBustParam covers the function; this covers the
+// caller actually invoking it with bust=false.)
+func TestEnsureIndexLazyFetchIsNonBusted(t *testing.T) {
+	lastReq, _ := stubIndexServer(t)
+	tmpDir := t.TempDir()
+	m := &Manager{
+		index:       nil,                              // force past the fast path
+		lastRefresh: time.Now().Add(-10 * time.Minute), // expired
+		ttl:         DefaultIndexTTL,
+		indexPath:   filepath.Join(tmpDir, "p2kb-index.json"), // absent -> loadFromCache false
+		metaPath:    filepath.Join(tmpDir, "p2kb-index.meta"),
+	}
+	if err := m.EnsureIndex(); err != nil {
+		t.Fatalf("EnsureIndex: %v", err)
+	}
+	req := lastReq()
+	if req == nil {
+		t.Fatal("EnsureIndex did not hit the server")
+	}
+	if strings.Contains(req.URL.RawQuery, "t=") {
+		t.Errorf("lazy EnsureIndex must NOT cache-bust; got query %q", req.URL.RawQuery)
+	}
+	if cc := req.Header.Get("Cache-Control"); cc != "" {
+		t.Errorf("lazy EnsureIndex must not send Cache-Control; got %q", cc)
+	}
+}
+
+// TestRefreshIsBusted is the other half of the wiring: the manual user-triggered
+// Refresh (p2kb_refresh) must bypass the CDN — cache-busting query param AND
+// no-cache headers present.
+func TestRefreshIsBusted(t *testing.T) {
+	lastReq, _ := stubIndexServer(t)
+	tmpDir := t.TempDir()
+	m := &Manager{
+		ttl:       DefaultIndexTTL,
+		indexPath: filepath.Join(tmpDir, "p2kb-index.json"),
+		metaPath:  filepath.Join(tmpDir, "p2kb-index.meta"),
+	}
+	if err := m.Refresh(); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	req := lastReq()
+	if req == nil {
+		t.Fatal("Refresh did not hit the server")
+	}
+	if !strings.Contains(req.URL.RawQuery, "t=") {
+		t.Errorf("manual Refresh must cache-bust with ?t=; got query %q", req.URL.RawQuery)
+	}
+	if cc := req.Header.Get("Cache-Control"); !strings.Contains(cc, "no-cache") {
+		t.Errorf("manual Refresh must send no-cache Cache-Control; got %q", cc)
+	}
+}
