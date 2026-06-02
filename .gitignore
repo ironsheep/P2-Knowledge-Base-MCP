@@ -29,7 +29,8 @@ go.work.sum
 
 # Editor/IDE
 # .idea/
-# .vscode/
+# VS Code: settings are host/user-specific, not versioned
+.vscode/settings.json
 
 # Project binaries (at root level only)
 /p2kb-mcp
@@ -51,6 +52,9 @@ Thumbs.db
 
 # Local devcontainer overrides (host-specific mounts)
 .devcontainer/docker-compose.override.yml
+
+# Downloaded platform tool archives (e.g. pnut-ts binaries) — not versioned
+.devcontainer/*.zip
 
 # Local Claude Code settings
 .claude/settings.local.json
