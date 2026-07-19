@@ -1,6 +1,6 @@
 <!-- GENERATED FILE — do not edit.
      Edit the facts in docs-src/ and re-run docs-src/build/generate.py.
-     source fingerprint: 42bb09982c3e -->
+     source fingerprint: 724b3a90d52c -->
 
 # P2 tool installation standard
 

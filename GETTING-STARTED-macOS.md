@@ -1,6 +1,6 @@
 <!-- GENERATED FILE — do not edit.
      Edit the facts in docs-src/ and re-run docs-src/build/generate.py.
-     source fingerprint: 42bb09982c3e -->
+     source fingerprint: 724b3a90d52c -->
 
 # Getting started on macOS (Intel and Apple Silicon)
 
@@ -83,6 +83,8 @@ timeout — if your host reports a timeout, retry once.
 Ask your agent a P2 question that only the knowledge base can answer, such as
 *"What does the PASM2 `RDFAST` instruction do?"* If the tools are registered,
 the answer will cite the knowledge base.
+
+> There is also an advanced *container-tools* install, for people already running several MCP servers under one shared tree. It is described at the very end of this page. If that does not describe you, ignore it — the install above is complete.
 
 ---
 
@@ -253,4 +255,47 @@ mv flexprop /Applications/flexprop
 **A tool is not found in the terminal.** Confirm the PATH entry, then open a NEW terminal — existing ones keep the old PATH.
 
 **The Spin2 extension did not find a tool.** The extension scans when it activates. Reload the VS Code window after installing a tool. If it still does not appear, use the command **Spin2: Add Compiler** to point at the executable directly.
+
+---
+
+## Advanced: Container-Tools install
+
+Most people should not read this section. The standard install above is
+simpler and does exactly the same job for a single MCP server. This variant
+exists for one situation: **you are already running several MCP servers under a shared /opt/container-tools tree**, and want them co-located under
+one tree with a shared installer, shared configuration, and rollback on update.
+
+If that is not you, you are already done — go back to Part 2 or stop here.
+
+1. Download **`container-tools-p2kb-mcp-v<version>.tar.gz`** from the [latest release](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/latest).
+   One archive carries the binaries for every platform.
+2. Extract and run the installer:
+
+   ```sh
+   tar -xzf container-tools-p2kb-mcp-v<version>.tar.gz
+   cd container-tools-p2kb-mcp-v*/p2kb-mcp
+   sudo ./install.sh
+   ```
+3. Verify:
+
+   ```sh
+   /opt/container-tools/bin/p2kb-mcp --version
+   ```
+
+**You still have to register with your agent.** The installer writes
+`/opt/container-tools/etc/mcp.json`, which is the framework's own
+configuration — no AI host reads it. Use the same registration step as the
+standard install, with this path instead:
+
+```sh
+claude mcp add -s user p2kb-mcp -- /opt/container-tools/bin/p2kb-mcp
+```
+
+**Installer options.** `--target DIR` installs somewhere other than
+`/opt/container-tools`; `--uninstall` removes p2kb-mcp, rolling back to the
+previously installed version if one is present.
+
+**If `jq` is not installed**, the installer cannot update the shared
+`mcp.json` and will warn rather than fail — the install reports success while
+that step is silently skipped. Install `jq` first to avoid this.
 

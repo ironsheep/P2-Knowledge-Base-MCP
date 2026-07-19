@@ -8,6 +8,12 @@
 
 P2KB MCP connects Claude, Codex, and Cursor to the [Propeller 2 Knowledge Base](https://github.com/ironsheep/P2-Knowledge-Base) and [OBEX (Parallax Object Exchange)](https://obex.parallax.com/), giving your AI direct access to PASM2 instructions, Spin2 methods, P2 hardware architecture, and community code objects.
 
+**Works on macOS, Windows, Linux, and Raspberry Pi.** You'll need Claude Code,
+Claude Desktop, Cursor, or Codex already installed — P2KB MCP is a server your
+AI talks to, not a standalone app.
+
+➜ **[Get started in five minutes](#installation)**
+
 ---
 
 ## What You Can Do
@@ -74,17 +80,17 @@ Combine knowledge areas — your AI can pull from multiple parts of the knowledg
 
 ## Installation
 
-P2KB MCP supports Claude (Desktop and Code), Cursor, and Codex. Almost everyone wants the **standard single-platform install** — a one-platform download that drops a binary into `/opt/p2kb-mcp/` (or `C:\Program Files\p2kb-mcp\`) and wires it up to your AI tool. Three steps: download, install, connect.
+Three steps: download, install, connect. Pick your platform:
 
-### Standard Install (recommended for almost everyone)
+| Platform | Guide |
+|----------|-------|
+| **macOS** | **[Getting started on macOS](GETTING-STARTED-macOS.md)** |
+| **Windows** | **[Getting started on Windows](GETTING-STARTED-Windows.md)** |
+| **Linux / Raspberry Pi** | **[Getting started on Linux](GETTING-STARTED-Linux.md)** |
 
-Pick the guide for your AI tool. Each one uses the single-platform package for your OS:
-
-| Guide | For |
-|-------|-----|
-| **[INSTALL.md](INSTALL.md)** | **Claude Desktop** and **Claude Code** — Windows, macOS, and Linux |
-| **[INSTALL-CURSOR.md](INSTALL-CURSOR.md)** | **Cursor** IDE |
-| **[INSTALL-CODEX.md](INSTALL-CODEX.md)** | **OpenAI Codex** CLI and IDE extension |
+Each guide covers Claude Code, Claude Desktop, Cursor, and Codex — the install
+is the same for all of them, only the last step differs. **Part 1 is all you
+need**; it stands on its own and stops at a working setup.
 
 **What you download:** a small platform-specific archive — e.g. `p2kb-mcp-vX.X.X-darwin-arm64.tar.gz` on Apple Silicon, `p2kb-mcp-vX.X.X-windows-amd64.zip` on Windows. It contains just the binary for your machine plus the docs.
 
@@ -92,7 +98,33 @@ Pick the guide for your AI tool. Each one uses the single-platform package for y
 
 The separate `container-tools-p2kb-mcp-vX.X.X.tar.gz` package exists for a specific niche: users who run **multiple** MCP servers and want them co-located under a shared `/opt/container-tools/` tree with a unified installer, shared `mcp.json`, automatic backup/rollback on updates, and Claude Code lifecycle hooks. It ships binaries for **all** platforms in one archive along with an `install.sh` script.
 
-Unless you are already using the container-tools framework for other MCPs, **skip this** — the standard install above is simpler and does the same job for a single MCP. If it does apply to you, see **[INSTALL-ADVANCED.md](INSTALL-ADVANCED.md)**.
+Unless you are already using the container-tools framework for other MCPs, **skip this** — the standard install above is simpler and does the same job for a single MCP. If it does apply to you, it is described in the **Advanced** section at the end of your platform guide.
+
+### Check it worked
+
+Ask your AI a question only the knowledge base can answer:
+
+> *"What does the PASM2 RDFAST instruction do?"*
+
+If P2KB MCP is connected, the answer cites the knowledge base. If your AI
+hedges or talks about the Propeller 1, it is not connected yet — see the
+troubleshooting section in your platform guide.
+
+---
+
+## How It Works
+
+P2KB MCP is an [MCP server](https://modelcontextprotocol.io/) — a small program that runs locally on your machine. When your AI tool needs Propeller 2 information, it queries the MCP server, which fetches and caches content from the P2 Knowledge Base on GitHub. You don't need to download any documentation manually; the server handles it automatically.
+
+The knowledge base covers:
+
+| Area | Content |
+|------|---------|
+| **PASM2** | All assembly instructions with syntax, encoding, flag effects, and examples |
+| **Spin2** | Built-in methods with parameters, return values, and usage |
+| **Architecture** | COG, HUB, Smart Pins, and hardware documentation |
+| **Guides** | Quick reference cards and getting-started material |
+| **OBEX** | ~113 community code objects — drivers, libraries, and demos |
 
 ---
 
@@ -163,22 +195,6 @@ pnut-term-ts --headless -f program.bin --timeout 10
 ```
 
 In headless mode, all serial and debug output from your Spin2 program is captured to a log file. When the run completes, your AI reads the log, sees what worked and what didn't, makes code corrections, and recompiles — a full compile-download-test-fix loop running autonomously on real hardware.
-
----
-
-## How It Works
-
-P2KB MCP is an [MCP server](https://modelcontextprotocol.io/) — a small program that runs locally on your machine. When your AI tool needs Propeller 2 information, it queries the MCP server, which fetches and caches content from the P2 Knowledge Base on GitHub. You don't need to download any documentation manually; the server handles it automatically.
-
-The knowledge base covers:
-
-| Area | Content |
-|------|---------|
-| **PASM2** | All assembly instructions with syntax, encoding, flag effects, and examples |
-| **Spin2** | Built-in methods with parameters, return values, and usage |
-| **Architecture** | COG, HUB, Smart Pins, and hardware documentation |
-| **Guides** | Quick reference cards and getting-started material |
-| **OBEX** | ~113 community code objects — drivers, libraries, and demos |
 
 ---
 

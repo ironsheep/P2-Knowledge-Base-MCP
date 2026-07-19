@@ -1,5 +1,25 @@
 # AI-Assisted Propeller 2 Development — Zoom Class
 
+## Setting up for class
+
+| Your machine | Setup guide |
+|---|---|
+| **macOS** | **[SETUP-MACOS.md](SETUP-MACOS.md)** |
+| **Windows** | **[SETUP-WINDOWS.md](SETUP-WINDOWS.md)** |
+| **Linux / Raspberry Pi** | **[SETUP-LINUX.md](SETUP-LINUX.md)** |
+
+**About 30 minutes.** Required: the compiler, the downloader, an AI client, and
+P2KB MCP. Dictation and other extras are optional and can wait until after class.
+
+**On a budget?** Claude Code needs a Pro subscription ($20/month), but Claude
+Desktop's free tier works for this class — your setup guide covers both.
+
+**Can't finish?** Come anyway and arrive 15 minutes early. We'll finish your
+setup live. A partial setup is normal.
+
+---
+
+
 > **Disclaimer:** The pricing, plan details, and feature availability referenced in this document and the linked setup guides reflect our best research as of February 2026. These products and their plans change frequently — verify current pricing and features on each vendor's website before purchasing. Your mileage may vary.
 
 ## Welcome

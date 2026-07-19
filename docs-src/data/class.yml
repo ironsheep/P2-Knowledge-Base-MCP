@@ -1,0 +1,56 @@
+# ---------------------------------------------------------------------------
+# CLASS SLICE — same facts, different audience.
+#
+# Students setting up before a live Zoom class. They are on a deadline, will be
+# visible to peers if they arrive broken, and are the LEAST able to self-serve.
+# The audit found the old class docs gave this audience zero troubleshooting and
+# no functional test, while the self-serve docs got both. That is inverted, and
+# this slice exists to correct it.
+# ---------------------------------------------------------------------------
+
+class:
+  title: "Class setup"
+  budget: "about 30 minutes"
+
+  # The class uses an AI client directly, not the VSCode extension.
+  tools: [p2kb-mcp, pnut-ts, pnut-term-ts]
+
+  # Stated before anything else. The old docs buried cost and required/optional
+  # so a student could spend the whole 30 minutes on dictation and arrive broken.
+  up_front:
+    - "**Time:** about 30 minutes, less if you already use Claude Code."
+    - >-
+      **Required:** the compiler, the downloader, an AI client, and P2KB MCP.
+      Nothing else on this page is needed for class.
+    - >-
+      **Cost:** Claude Code needs a Pro subscription ($20/month). Don't want to
+      subscribe? Claude Desktop's free tier works for the class — the setup is
+      the same, you just connect a different client.
+    - >-
+      **If you get stuck:** finish what you can and come anyway. Arrive 15
+      minutes early and we will finish your setup live. A partial setup is
+      normal and recoverable — nobody is going to be stranded.
+
+  # The functional test the old class docs never had. This is the single
+  # highest-return addition from the pedagogical audit.
+  prove_it:
+    prompt: '"Use the P2 Knowledge Base to look up the MOV instruction."'
+    expect: >-
+      Your AI should answer with MOV's syntax, its operands, and which flags it
+      affects (C and Z), citing the knowledge base rather than answering from
+      memory. If it hedges, talks about the Propeller 1, or says it has no such
+      tool, it is not connected — check the troubleshooting section.
+    checklist:
+      - "Compiler installed and `pnut-ts --version` prints a version"
+      - "Downloader installed and `pnut-term-ts --version` prints a version"
+      - "AI client installed and starts"
+      - "P2KB MCP registered — and the question above answered from the knowledge base"
+
+  # Everything genuinely optional, stated as optional and placed AFTER the
+  # finish line so a linear reader never mistakes it for required work.
+  optional_after:
+    - title: Dictation
+      detail: >-
+        Talking to your AI is faster than typing, but it is not needed for
+        class and the setup is involved — on Linux it wants a group change, a
+        logout, and a language model download of around 2 GB. Do this later.

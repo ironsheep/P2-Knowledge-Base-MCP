@@ -27,8 +27,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 FRAG = ROOT / "fragments"
 TPL = ROOT / "templates"
-# generated guides live in the repo's existing DOCs/ tree
-OUT = ROOT.parent / "DOCs" / "setup"
+# keys below are repo-relative paths; each doc goes where readers look for it
+OUT = ROOT.parent
 
 # NOTE: prototype shortcut — these belong in platforms.yml alongside the rest
 # of the platform base. Left here only to keep the diff readable.
@@ -87,10 +87,41 @@ def load():
     platforms = yaml.safe_load((DATA / "platforms.yml").read_text())
     tools = yaml.safe_load((DATA / "tools.yml").read_text())
     env = yaml.safe_load((DATA / "environment.yml").read_text())
+    env["class"] = yaml.safe_load((DATA / "class.yml").read_text())["class"]
     accepted = {a["id"] for a in tools.pop("_accepted", [])}
     probes = tools.pop("_extension_probes")
     search_names = tools.pop("_extension_search_names")
     return platforms, tools, env, probes, search_names, accepted
+
+
+def variant_section(tools, platform, plat, tool_id="p2kb-mcp") -> str:
+    """Advanced install variants, rendered at the very END of a guide.
+
+    Deliberately not a fork in the main flow: a reader following the standard
+    path should never have to evaluate this. Part 1 carries only a one-line
+    pointer, and it is written so the correct action for most readers is to
+    stop reading.
+    """
+    tool = tools.get(tool_id, {})
+    out = []
+    for vid, v in (tool.get("variants") or {}).items():
+        frag = FRAG / "tools" / tool_id / f"variant-{vid}.md"
+        if not frag.exists():
+            continue
+        sep = sep_for(platform)
+        ctx = {
+            "skip_unless": v["skip_unless"].strip(),
+            "variant_asset": v["asset"].replace("{version}", "<version>"),
+            "variant_install_dir": v["install_dir"],
+            "variant_bin_launcher": f"{v['bin_dir']}{sep}{v['launcher']}",
+            "shell_installer": v.get("shell_installer", "install.sh"),
+            "releases_url": f"https://github.com/{tool['repo']}/releases/latest",
+        }
+        out.append(f"## Advanced: {v['name']}\n")
+        if platform == "windows" and v.get("windows_caveat"):
+            out.append(f"> {v['windows_caveat'].strip()}\n")
+        out.append(render(frag.read_text(), ctx))
+    return "\n".join(out)
 
 
 def prereq_block(env, tool_ids) -> str:
@@ -286,6 +317,14 @@ def build_suite(platform, plat, platforms, tools, env) -> str:
         if n:
             L.append(n + "\n")
 
+    if tools.get("p2kb-mcp", {}).get("variants"):
+        L.append(
+            "> There is also an advanced *container-tools* install, for people "
+            "already running several MCP servers under one shared tree. It is "
+            "described at the very end of this page. If that does not describe "
+            "you, ignore it — the install above is complete.\n"
+        )
+
     L.append(
         "---\n\n**You can stop here.** Your agent now knows the P2. Continue "
         "below when you want to compile and run code on real hardware.\n\n---\n"
@@ -431,6 +470,11 @@ def build_suite(platform, plat, platforms, tools, env) -> str:
         if platform not in item.get("platforms", []):
             continue
         L.append(f"**{item['title']}.** {item['detail'].strip()}\n")
+
+    vs = variant_section(tools, platform, plat)
+    if vs:
+        L.append("---\n")
+        L.append(vs)
     return "\n".join(L) + "\n"
 
 
@@ -553,6 +597,68 @@ def conformance(platforms, tools, probes, search_names, accepted):
     return errors, warnings
 
 
+def build_class(platform, plat, tools, env) -> str:
+    """The class slice: same cells, student framing.
+
+    Differences from the self-serve guide are audience, not facts — cost and
+    required/optional stated up front, a functional test before the checklist,
+    troubleshooting present, and every optional task moved past the finish line.
+    """
+    c = env["class"]
+    L = [f"# {c['title']} — {plat['label']}\n"]
+    L.append("Set this up before class so we can start on time.\n")
+    for line in c["up_front"]:
+        L.append(f"- {line.strip()}")
+    L.append("")
+    L.append(f"**Which build do I need?** {plat['arch_detect']}\n")
+    if plat.get("smartscreen"):
+        L.append(f"> {plat['smartscreen_note'].strip()}\n")
+
+    L.append("## Install\n")
+    for i, tid in enumerate(c["tools"], 1):
+        tool = tools[tid]
+        if platform not in tool["platforms"]:
+            continue
+        ctx = context(tid, tool, platform, plat)
+        L.append(f"### {i}. {tool['name']} — {tool['role']}\n")
+        L.append(recipe_for(tid, tool, platform, ctx))
+        n = notes_for(tid, platform, ctx)
+        if n:
+            L.append(n + "\n")
+
+    hw = env["hardware"].get(platform, [])
+    if hw:
+        L.append("### Connecting your P2\n")
+        for h in hw:
+            L.append(f"**{h['title']}.** {h['detail'].strip()}\n")
+            if h.get("command"):
+                L.append(f"```sh\n{h['command']}\n```\n")
+
+    pi = c["prove_it"]
+    L.append("## Prove it works\n")
+    L.append(f"Ask your AI:\n\n> *{pi['prompt']}*\n")
+    L.append(pi["expect"].strip() + "\n")
+    L.append("Then confirm all four:\n")
+    for item in pi["checklist"]:
+        L.append(f"- [ ] {item}")
+    L.append("\n**That's it — you're ready for class.**\n")
+
+    L.append("## If something did not work\n")
+    for item in env.get("troubleshooting", []):
+        if platform in item.get("platforms", []):
+            L.append(f"**{item['title']}.** {item['detail'].strip()}\n")
+    L.append(
+        "Still stuck? Come to class anyway and arrive 15 minutes early &mdash; "
+        "we will sort it out together.\n"
+    )
+
+    L.append("---\n")
+    L.append("## Optional, after class\n")
+    for o in c["optional_after"]:
+        L.append(f"**{o['title']}.** {o['detail'].strip()}\n")
+    return "\n".join(L) + "\n"
+
+
 def build_standard(platforms, tools) -> str:
     """The stated per-platform guidelines, generated from the same base the
     docs are generated from — so the rules and the instructions cannot drift."""
@@ -600,13 +706,17 @@ def main():
     check = "--check" in sys.argv
     platforms, tools, env, probes, search_names, accepted = load()
 
-    generated = {"PLATFORM-STANDARD.md": build_standard(platforms, tools)}
+    generated = {"DOCs/setup/PLATFORM-STANDARD.md": build_standard(platforms, tools)}
     for pid, plat in platforms.items():
         generated[f"GETTING-STARTED-{plat['name']}.md"] = build_suite(
             pid, plat, platforms, tools, env
         )
     for tid, tool in tools.items():
-        generated[f"tools/{tid}/INSTALL.md"] = build_tool(tid, tool, platforms, env)
+        generated[f"DOCs/setup/tools/{tid}/INSTALL.md"] = build_tool(tid, tool, platforms, env)
+    for pid, plat in platforms.items():
+        generated[f"DOCs/class/SETUP-{plat['name'].upper()}.md"] = build_class(
+            pid, plat, tools, env
+        )
 
     fp = source_fingerprint()
     generated = {rel: banner(fp) + body for rel, body in generated.items()}

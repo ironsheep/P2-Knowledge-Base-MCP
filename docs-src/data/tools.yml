@@ -30,6 +30,24 @@ p2kb-mcp:
     object library. No P2 hardware required.
   needs_path: false                 # invoked by the host via absolute path
   needs_host_registration: true
+  # A second install path for the same binary. Deliberately NOT presented as a
+  # choice in the main flow — most users must never have to evaluate it.
+  variants:
+    container-tools:
+      name: Container-Tools install
+      advanced: true
+      skip_unless: >-
+        you are already running several MCP servers under a shared
+        /opt/container-tools tree
+      asset: "container-tools-p2kb-mcp-v{version}.tar.gz"
+      platform_independent: true    # one archive carries all six binaries
+      install_dir: "/opt/container-tools"
+      bin_dir: "/opt/container-tools/bin"
+      launcher: "p2kb-mcp"
+      shell_installer: "install.sh"
+      windows_caveat: >-
+        The installer is a shell script. On Windows it runs only under Git Bash
+        or MSYS, not in Command Prompt or PowerShell.
   platforms:
     macos:
       install_dir: "/opt/p2kb-mcp"

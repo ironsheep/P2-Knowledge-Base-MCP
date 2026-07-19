@@ -1,255 +1,175 @@
-# Pre-Class Setup Guide — Linux
+<!-- GENERATED FILE — do not edit.
+     Edit the facts in docs-src/ and re-run docs-src/build/generate.py.
+     source fingerprint: 724b3a90d52c -->
 
-> **Disclaimer:** The pricing, plan details, and feature availability described in this document reflect our best research as of February 2026. These products and their plans change frequently — verify current pricing and features on each vendor's website before purchasing. Your mileage may vary.
+# Class setup — Linux and Raspberry Pi OS
 
-*See the [class overview](README.md) for what this session covers and why you'd want to attend.*
+Set this up before class so we can start on time.
 
-Welcome! Before our Zoom session, please install the tools listed below so we can hit the ground running. Set aside about 30 minutes—most steps are quick downloads and single-line installs.
+- **Time:** about 30 minutes, less if you already use Claude Code.
+- **Required:** the compiler, the downloader, an AI client, and P2KB MCP. Nothing else on this page is needed for class.
+- **Cost:** Claude Code needs a Pro subscription ($20/month). Don't want to subscribe? Claude Desktop's free tier works for the class — the setup is the same, you just connect a different client.
+- **If you get stuck:** finish what you can and come anyway. Arrive 15 minutes early and we will finish your setup live. A partial setup is normal and recoverable — nobody is going to be stranded.
 
-**Contents:** [1. PNut_TS Compiler](#1-pnut_ts-compiler) | [2. pnut-term-ts Downloader](#2-pnut_ts-downloader-pnut-term-ts) | [3. Claude Code CLI](#3-claude-code-cli) | [4. P2KB-MCP Server](#4-p2-knowledge-base-mcp-server) | [5. Audio Setup](#5-audio-setup-speech-to-text-for-terminal-use) | [6. Wispr](#6-wispr-optional--ai-voice-input) | [Checklist](#checklist) | [Appendix: Alternatives](#appendix-alternative-ai-coding-tools)
+**Which build do I need?** Run `uname -m`. `x86_64` means **x64**; `aarch64` means **arm64**.
 
----
+## Install
 
-## 1. PNut_TS Compiler
+### 1. P2KB MCP — P2 knowledge server for AI coding agents
 
-PNut_TS is the TypeScript-based Propeller 2 compiler (the name stands for **P**-**N**-**u**-**t** **T**ype**S**cript).
+1. Download **`p2kb-mcp-v<version>-linux-<arch>.tar.gz`** from the [latest release](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases/latest).
+2. Unpack it and move it into place:
 
-**Install instructions:** [Install/Update PNut_TS on RPi/Linux](https://github.com/ironsheep/P2-vscode-langserv-extension/blob/main/TASKS-User-RPi.md#installing-pnut-ts-on-rpilinux)
+   ```sh
+   cd ~/Downloads
+   tar -xzf p2kb-mcp-v<version>-linux-<arch>.tar.gz
+   sudo mv p2kb-mcp /opt/p2kb-mcp
+   ```
+3. Verify:
 
-## 2. PNut_TS Downloader (pnut-term-ts)
-
-The PNut_TS terminal tool (`pnut-term-ts`) loads your compiled P2 binaries onto the Propeller 2 board via serial connection.
-
-**Install instructions:** [Install/Update pnut-term-ts on RPi/Linux](https://github.com/ironsheep/P2-vscode-langserv-extension/blob/main/TASKS-User-RPi.md#installing-pnut-term-ts-on-rpilinux)
-
-## 3. Claude Code CLI
-
-Claude Code is Anthropic's command-line interface for Claude.
-
-**First:** If you don't already have one, [create a Claude account at claude.ai](https://claude.ai/) and subscribe to at least the **Pro** plan. Do this before installing Claude Code — you'll need to log in during setup.
-
-**Install instructions:** Follow the [Claude Code Quickstart Guide](https://code.claude.com/docs/en/quickstart) — it covers prerequisites and installation for all platforms.
-
-After install, verify it works by opening a terminal and running:
-
-```bash
-claude --version
-```
-
-### Claude Subscription Required
-
-Claude has a **Free** tier, but it only covers the web/desktop/mobile chat — it does **not** include Claude Code (the CLI). To use Claude Code you need at least a **Pro** subscription. See [Claude Pricing](https://claude.com/pricing) for full details. Here are the relevant plans:
-
-| Plan | Cost | Claude Code CLI | Models Available | Usage Limit | Best For |
-|------|------|:-:|-----------------|-------------|----------|
-| **Free** | $0 | No — Desktop only | Sonnet 4.6, Haiku 4.5 | ~5-10 tool calls/hour; smaller context window | Light lookups via Claude Desktop. No terminal workflow. |
-| **Pro** | $20/month | Yes | Sonnet 4.6, Haiku 4.5 | ~45 messages per 5-hour window | Learning, light use. You may hit limits during extended coding sessions. |
-| **Max 5x** | $100/month | Yes | Sonnet 4.6, Haiku 4.5, **Opus 4.6** | ~225 messages per 5-hour window | Regular daily development with occasional Opus use. |
-| **Max 20x** | $200/month | Yes | Sonnet 4.6, Haiku 4.5, **Opus 4.6** | ~900 messages per 5-hour window | Heavy daily use; effectively unlimited for most sessions. |
-
-**What this means in practice:**
-
-- **Pro ($20/mo)** is the minimum for our class. Sonnet 4.6 is very capable and handles most coding tasks well. Expect roughly 1-2 hours of active back-and-forth before hitting the 5-hour window limit, depending on task complexity.
-- **Opus 4.6** is the most capable model (deeper reasoning, better multi-file work) but is only available on Max plans.
-- **Haiku 4.5** is the fastest and cheapest model — great for quick lookups and simple tasks.
-- All models share a **1 million token context window**, so Claude can hold large codebases in memory during a session.
-
-> **For this class:** The **Pro plan ($20/mo)** with Sonnet is sufficient. You can always upgrade later if you find yourself wanting more.
->
-> **Free tier alternative:** If you'd prefer not to subscribe, you can skip the Claude Code CLI install and instead use the [Claude Desktop](https://claude.ai/download) app (free) with the P2KB-MCP server connected to it (see Section 4, Option B). The free tier supports MCP servers, file access, and tool execution — so you can still look up PASM2 instructions, search OBEX, etc. However, you'll be limited to roughly 5-10 tool calls per hour and a smaller context window. You also won't have the CLI terminal workflow we'll demo in class.
-
-## 4. P2 Knowledge Base MCP Server
-
-The P2KB-MCP server gives Claude access to PASM2 instructions, Spin2 methods, and OBEX objects.
-
-### Download
-
-Go to the [Releases page](https://github.com/ironsheep/P2-Knowledge-Base-MCP/releases) and download the Linux package:
-
-| Your System | Download File |
-|-------------|--------------|
-| 64-bit (x86_64) | `p2kb-mcp-vX.X.X-linux-amd64.tar.gz` |
-| ARM64 (aarch64) | `p2kb-mcp-vX.X.X-linux-arm64.tar.gz` |
-
-> **Which one?** Run `uname -m` in a terminal — `x86_64` means 64-bit, `aarch64` means ARM64.
-
-### Install
-
-In your terminal, run:
-
-```bash
-cd ~/Downloads
-tar -xzf p2kb-mcp-v*-linux-*.tar.gz
-sudo mv p2kb-mcp /opt/p2kb-mcp
-```
-
-Verify:
-
-```bash
-/opt/p2kb-mcp/bin/p2kb-mcp --version
-```
-
-### Connect to Claude — Option A: Claude Code (CLI)
-
-If you have a **Pro or Max** subscription, run this in your terminal:
-
-```bash
-claude mcp add -s user p2kb-mcp -- /opt/p2kb-mcp/bin/p2kb-mcp --mode stdio
-```
-
-This registers the MCP server for all your Claude Code sessions. Next time you start Claude Code, the P2 Knowledge Base tools will be available.
-
-### Connect to Claude — Option B: Claude Desktop (Free tier)
-
-If you're using the **free tier**, install [Claude Desktop](https://claude.ai/download) and edit its configuration file to add the MCP server.
-
-1. Open the config file at `~/.config/claude/claude_desktop_config.json` in a text editor (create it if it doesn't exist)
-2. Add (or merge into) the `mcpServers` section:
-
-   ```json
-   {
-     "mcpServers": {
-       "p2kb-mcp": {
-         "command": "/opt/p2kb-mcp/bin/p2kb-mcp",
-         "args": ["--mode", "stdio"]
-       }
-     }
-   }
+   ```sh
+   /opt/p2kb-mcp/bin/p2kb-mcp --version
    ```
 
-   > If you already have other MCP servers in the file, add just the `"p2kb-mcp": { ... }` block inside the existing `"mcpServers"` object.
+### Register it with your agent
 
-3. **Restart Claude Desktop** after saving the config file.
+Pick the host you actually use. This is the only step that differs by host.
 
----
+**Claude Code** — one command, no file editing:
 
-## 5. Audio Setup (Speech-to-Text for Terminal Use)
+```sh
+claude mcp add -s user p2kb-mcp -- /opt/p2kb-mcp/bin/p2kb-mcp
+```
 
-Linux doesn't have a single standard dictation feature, but **Speech Note** is a straightforward, offline, GUI-based tool that works on any distro supporting Flatpak.
+**Claude Desktop** — edit `~/.config/claude/claude_desktop_config.json` and add the `p2kb-mcp`
+entry inside the existing `mcpServers` object (create the file if it does not
+exist). Do not replace the whole file if you already have other servers.
 
-### Verify Microphone Access
+```json
+{
+  "mcpServers": {
+    "p2kb-mcp": {
+      "command": "/opt/p2kb-mcp/bin/p2kb-mcp"
+    }
+  }
+}
+```
 
-1. Confirm your user is in the `audio` group:
+Restart Claude Desktop afterward.
 
-   ```bash
-   sudo usermod -a -G audio $USER
+**Cursor** — same JSON, in `~/.cursor/mcp.json`. Reload the window afterward.
+
+**Codex** — `codex mcp add p2kb-mcp -- /opt/p2kb-mcp/bin/p2kb-mcp`
+
+### First run
+
+The server downloads its knowledge index from GitHub the first time an agent
+calls it, then keeps it fresh automatically. No setup step is needed. On a slow
+connection the very first call can take longer than a host's default startup
+timeout — if your host reports a timeout, retry once.
+
+### Check that it worked
+
+Ask your agent a P2 question that only the knowledge base can answer, such as
+*"What does the PASM2 `RDFAST` instruction do?"* If the tools are registered,
+the answer will cite the knowledge base.
+
+### 2. PNut-TS — Spin2 / PASM2 compiler
+
+1. Download **`pnut-ts-linux-<arch>-<version>.zip`** from the [latest release](https://github.com/ironsheep/PNut-TS/releases/latest).
+2. Unpack it and move it into place:
+
+   ```sh
+   unzip pnut-ts-linux-<arch>-<version>.zip
+   sudo mv pnut_ts /opt/pnut_ts
+   ```
+3. Add the tool to your PATH — see [PATH setup](#path-setup-on-linux):
+
+   ```sh
+   export PATH="/opt/pnut_ts:$PATH"
+   ```
+4. Open a new shell and verify:
+
+   ```sh
+   pnut-ts --version
    ```
 
-   Then **log out and back in** if you weren't already in the group.
+### 3. PNut-Term-TS — download and debug terminal
 
-2. Ensure **PulseAudio** or **PipeWire** is running (standard on most modern distros).
+1. Download **`pnut-term-ts-linux-<arch>-<version>.zip`** from the [latest release](https://github.com/ironsheep/PNut-Term-TS/releases/latest).
+2. Unpack it and move it into place:
 
-### Install Speech Note (Flatpak)
+   ```sh
+   unzip pnut-term-ts-linux-<arch>-<version>.zip
+   sudo mv pnut_term_ts /opt/pnut_term_ts
+   ```
+3. Add the tool to your PATH — see [PATH setup](#path-setup-on-linux):
 
-1. Make sure Flatpak is installed and Flathub is configured. On Debian/Ubuntu:
+   ```sh
+   export PATH="/opt/pnut_term_ts/bin:$PATH"
+   ```
+4. Open a new shell and verify:
 
-   ```bash
-   sudo apt install flatpak
-   flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+   ```sh
+   pnut-term-ts --version
    ```
 
-2. Install Speech Note from your software center (search "Speech Note") or via the command line.
+### Serial port access
 
-### Configure Speech Note
+Add yourself to the `dialout` group so you can open the PropPlug, then log out
+and back in for it to take effect:
 
-1. Launch **Speech Note** from the app menu
-2. On first run, download the English language model (note: models can be ~2 GB)
-3. In settings, choose the correct **microphone device**
-4. Set the listening mode — **"always on"** keeps listening until you stop it; **"press and hold"** is also available
+```sh
+sudo usermod -a -G dialout $USER
+```
 
-### Using Speech Note with Claude Code
+PropPlugs appear as `/dev/ttyUSB*`. List the ones the tool can see with
+`pnut-term-ts -n`.
 
-1. Open your preferred terminal (GNOME Terminal, Konsole, etc.) and run `claude`
-2. Place the cursor where you'd type a command
-3. Switch to Speech Note, click **Listen** (or use its hotkey if configured)
-4. Speak — after a short lag, Speech Note transcribes into its window
-5. Copy the transcribed text and paste it into the terminal
-6. Press **Enter** to send it
+### Connecting your P2
 
-> **For more technical users:** [nerd-dictation](https://github.com/ideasman42/nerd-dictation) is a Vosk-based Python script that pipes transcribed text directly into the active window, skipping the copy/paste step. It requires more setup but is very effective.
+**Serial group membership.** Add yourself to the dialout group, then log out and back in for it to take effect.
 
-## 6. Wispr (Optional — AI Voice Input)
+```sh
+sudo usermod -a -G dialout $USER
+```
 
-[Wispr](https://www.wispr.com/) is an AI-powered voice-to-text tool that listens to your microphone and pastes transcribed text directly into whatever application has focus — including the terminal. This is entirely optional, but if you'd like hands-free input to Claude Code, give it a try.
+**Confirm the PropPlug is seen.** Plug in the PropPlug and check that it appears. No driver install and no udev rule are required &mdash; the PropPlug uses a standard FTDI vendor/product pair that Linux has recognised for years.
 
-- Visit [wispr.com](https://www.wispr.com/) to sign up for a free trial or subscription
-- Install the Wispr desktop app and follow their setup wizard
-- **Note:** Wispr's Linux support may be limited — check their site for current platform availability
+```sh
+ls -l /dev/ttyUSB*
+```
+
+## Prove it works
+
+Ask your AI:
+
+> *"Use the P2 Knowledge Base to look up the MOV instruction."*
+
+Your AI should answer with MOV's syntax, its operands, and which flags it affects (C and Z), citing the knowledge base rather than answering from memory. If it hedges, talks about the Propeller 1, or says it has no such tool, it is not connected — check the troubleshooting section.
+
+Then confirm all four:
+
+- [ ] Compiler installed and `pnut-ts --version` prints a version
+- [ ] Downloader installed and `pnut-term-ts --version` prints a version
+- [ ] AI client installed and starts
+- [ ] P2KB MCP registered — and the question above answered from the knowledge base
+
+**That's it — you're ready for class.**
+
+## If something did not work
+
+**A tool is not found in the terminal.** Confirm the PATH entry, then open a NEW terminal — existing ones keep the old PATH.
+
+**The Spin2 extension did not find a tool.** The extension scans when it activates. Reload the VS Code window after installing a tool. If it still does not appear, use the command **Spin2: Add Compiler** to point at the executable directly.
+
+**The PropPlug does not appear as /dev/ttyUSB*.** Check that the adapter enumerates at all with `lsusb`. A PropPlug Rev E reports as `0403:6015`; earlier revisions report `0403:6001`. Both are standard FTDI pairs that Linux binds automatically &mdash; neither needs a udev rule. Then run `dmesg | tail -20` right after plugging it in; you should see `ftdi_sio` attaching it to a ttyUSB device. If it enumerates but no driver claims it, you have an adapter with a non-standard product ID and will need a udev rule naming that ID.
+
+Still stuck? Come to class anyway and arrive 15 minutes early &mdash; we will sort it out together.
 
 ---
 
-## Checklist
+## Optional, after class
 
-Before the class session, confirm each of the following:
+**Dictation.** Talking to your AI is faster than typing, but it is not needed for class and the setup is involved — on Linux it wants a group change, a logout, and a language model download of around 2 GB. Do this later.
 
-- [ ] PNut_TS compiler installed and runs
-- [ ] pnut-term-ts installed and runs
-- [ ] **Either:** Claude Code CLI installed (`claude --version` shows a version) **or** Claude Desktop installed with P2KB-MCP configured (free tier)
-- [ ] P2KB-MCP server installed and connected to your Claude client
-- [ ] Microphone working (test with `arecord -d 3 /tmp/test.wav && aplay /tmp/test.wav` or your desktop's Sound settings)
-- [ ] (Optional) Wispr installed and working
-
-See you on Zoom!
-
----
-
-## Appendix: Alternative AI Coding Tools
-
-Our class uses **Claude Code** (Anthropic's terminal CLI), and the P2 Knowledge Base MCP server has been **extensively tested with Claude Code**. However, there are other AI coding tools that also support MCP servers — meaning they can also connect to the P2 Knowledge Base. These alternatives are **as yet untested with P2KB-MCP but should work**, as they all follow the same MCP standard. If you already use one of these, or are curious, here's a quick overview.
-
-### GitHub Copilot in VS Code
-
-If you already use **VS Code with the Spin2 extension**, [GitHub Copilot](https://github.com/features/copilot) is the most natural addition — it works right inside your existing editor. Copilot supports MCP servers in VS Code (v1.99+), so you can connect the P2 Knowledge Base without leaving the IDE you already use for P2 development.
-
-**Install:** Install the "GitHub Copilot" extension from the VS Code marketplace.
-
-**Platform support:** Windows, macOS, Linux (anywhere VS Code runs).
-
-**MCP support:** Yes — configure via `.vscode/mcp.json` in your project or through VS Code's user settings. MCP is enabled by default (`chat.mcp.enabled`). MCP is available on **all tiers, including Free**.
-
-**Copilot also includes OpenAI Codex:** On paid tiers, Copilot includes access to the OpenAI Codex coding agent (GPT-5.3-Codex) and a Copilot CLI for terminal use — no separate OpenAI/ChatGPT subscription needed.
-
-| Plan | Cost | Completions | Premium Requests/month | Copilot CLI | Notes |
-|------|------|-------------|----------------------|:-----------:|-------|
-| Free | $0 | 2,000/month | 50 | No | MCP supported. Good for light use and lookups. |
-| Pro | $10/month | Unlimited | 300 | Yes | Includes Codex agent and Copilot CLI. |
-| Pro+ | $39/month | Unlimited | 1,500 | Yes | Access to all models including Claude Opus 4, o3. |
-
-> **If you're already a VS Code + Spin2 user:** Copilot Free gives you MCP support at no cost — just install the extension, configure the P2KB-MCP server in `.vscode/mcp.json`, and you can query PASM2 instructions and OBEX objects directly from Copilot Chat. Paid tiers add the Codex agent for autonomous multi-file coding and a terminal CLI.
-
-### OpenAI Codex CLI (Standalone)
-
-[Codex CLI](https://developers.openai.com/codex/cli) is OpenAI's **standalone** terminal-based coding agent — similar in concept to Claude Code but powered by OpenAI models (default: GPT-5.3-Codex). It's open source, built in Rust, and supports MCP servers via `~/.codex/config.toml`.
-
-> **Note:** This is a separate product from the Codex agent built into GitHub Copilot (above). The standalone Codex CLI requires its own **ChatGPT Plus** subscription — it does not use your Copilot subscription.
-
-**Install:** `npm i -g @openai/codex` (requires Node.js). See the [Codex CLI docs](https://developers.openai.com/codex/cli) for full setup instructions.
-
-**Platform support:** macOS and Linux fully supported; Windows is experimental (WSL recommended).
-
-**MCP support:** Yes — both STDIO and streaming HTTP servers. Configure in `~/.codex/config.toml` or via `codex mcp add`. See our [P2KB-MCP Codex setup guide](../../INSTALL-CODEX.md) for details.
-
-| Plan | Cost | Notes |
-|------|------|-------|
-| ChatGPT Plus | $20/month | Includes Codex CLI access |
-| ChatGPT Pro | $200/month | Higher limits |
-| ChatGPT Business | Per-seat pricing | Team features |
-
-### Cursor IDE
-
-[Cursor](https://www.cursor.com/) is a VS Code-based IDE with built-in AI coding assistance. It supports MCP servers natively and offers agentic multi-file editing, background agents, and tab completions.
-
-**Install:** Download from [cursor.com/downloads](https://www.cursor.com/downloads)
-
-**Platform support:** Windows, macOS, Linux.
-
-**MCP support:** Yes — configure via Cursor Settings UI or `~/.cursor/mcp.json`. See our [P2KB-MCP Cursor setup guide](../../INSTALL-CURSOR.md) for details.
-
-| Plan | Cost | Notes |
-|------|------|-------|
-| Hobby (Free) | $0 | Limited completions and agent requests; includes MCP support |
-| Pro | $20/month | Unlimited completions, extended agent requests |
-| Pro+ | $60/month | 3x Pro usage |
-| Ultra | $200/month | 20x Pro usage |
-
-> **Note:** Cursor's free Hobby tier includes MCP support — so you can connect the P2 Knowledge Base at no cost, though with limited request counts.
