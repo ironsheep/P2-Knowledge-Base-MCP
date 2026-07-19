@@ -39,6 +39,14 @@ python3 docs-src/build/generate.py --check    # CI: fail on stale output or conf
 tool's declared location cannot be reached by the extension that has to find it.
 It is the reason drift becomes a red X instead of a support question.
 
+## Why it is shaped this way
+
+See **[DECISIONS.md](DECISIONS.md)** — the reasoning behind the choices that
+look like mistakes without context: why macOS DMG tools skip move-aside, why
+`/opt/p2kb-mcp` sits outside `/Applications`, why container-tools is buried at
+the end, and why the FTDI udev rule was deleted rather than fixed. Read it
+before "fixing" an apparent inconsistency in `data/`.
+
 ## Rules that hold this together
 
 **Never type a path in prose.** Interpolate it. Every path defect we have had
