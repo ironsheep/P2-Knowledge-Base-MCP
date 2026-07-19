@@ -1,0 +1,32 @@
+name: Install docs
+
+# Generated install docs must match docs-src/. This is the mechanism that makes
+# documentation drift loud: previously a wrong path could sit in the docs for
+# months without anything noticing.
+on:
+  push:
+    paths:
+      - 'docs-src/**'
+      - 'DOCs/setup/**'
+      - '.github/workflows/docs-check.yml'
+  pull_request:
+    paths:
+      - 'docs-src/**'
+      - 'DOCs/setup/**'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Verify generated docs are current and conformant
+        run: python3 docs-src/build/generate.py --check

@@ -1,0 +1,140 @@
+# ---------------------------------------------------------------------------
+# PLATFORM BASE  —  the "stated guidelines" every tool must conform to.
+#
+# This is the propagating base. A tool does not get to invent its own install
+# root, PATH mechanism, or update story. It declares which platform it targets
+# and inherits the rules below.
+#
+# Everything here appears in generated prose by interpolation. No path is ever
+# retyped in a fragment — that is what caused the /opt/pnut-term-ts vs
+# /opt/pnut_term_ts class of defect.
+# ---------------------------------------------------------------------------
+
+macos:
+  name: macOS
+  label: "macOS (Intel and Apple Silicon)"
+  order: 1
+
+  # --- architecture -------------------------------------------------------
+  archs: [arm64, x64]
+  arch_detect: "Apple menu &rarr; **About This Mac**. \"Apple M1/M2/M3/M4\" means **arm64**; \"Intel\" means **x64**."
+
+  # --- where tools go -----------------------------------------------------
+  install_root: "/Applications"
+  # Roots by what a tool IS, not one root per platform. A headless server does
+  # not belong in /Applications even though our CLI tools deliberately do.
+  install_roots:
+    gui-app: "/Applications"
+    cli-tool: "/Applications"
+    server: "/opt"
+  root_writable_by_user: true      # no sudo for the common case
+  privilege_note: ""
+
+  # --- PATH ---------------------------------------------------------------
+  # FLEET RULE, macOS-specific and deliberate: tools installed under
+  # /Applications are STILL added to PATH, so every one of them runs from any
+  # terminal by base name. This is not standard macOS practice — apps in
+  # /Applications are normally not on PATH — so it must be stated, not assumed.
+  #
+  # For a .app bundle the PATH element points INSIDE the bundle, at
+  # Contents/Resources/bin — never at the .app itself. That distinction is
+  # exactly what TASKS-User-macOS.md got wrong, which is why bin_dir is a
+  # separate declared fact and is never retyped in prose.
+  path_policy: >-
+    Tools under /Applications are added to PATH so they run by base name from
+    any terminal. For a .app bundle the PATH element points inside the bundle
+    at Contents/Resources/bin, not at the .app.
+  path_file: "~/.zshrc"
+  path_file_alt: "~/.bash_profile"
+  path_stanza: 'export PATH="{bin_dir}:$PATH"'
+  path_reload: "source {path_file}"
+  path_sep: ":"
+
+  # --- security -----------------------------------------------------------
+  quarantine: true
+  quarantine_cmd: "xattr -rd com.apple.quarantine {install_dir}"
+  quarantine_note: >-
+    Signed and notarized tools clear Gatekeeper on their own. Run the command
+    above only if macOS refuses to launch the tool.
+
+  # --- verification -------------------------------------------------------
+  verify_cmd: "{launcher} --version"
+  which_cmd: "which {launcher}"
+
+  # --- update model -------------------------------------------------------
+  update_style: move-aside
+
+linux:
+  name: Linux
+  label: "Linux and Raspberry Pi OS"
+  order: 2
+
+  archs: [x64, arm64]
+  arch_detect: "Run `uname -m`. `x86_64` means **x64**; `aarch64` means **arm64**."
+
+  install_root: "/opt"
+  install_roots: { gui-app: "/opt", cli-tool: "/opt", server: "/opt" }
+  root_writable_by_user: false
+  privilege_note: "`/opt` is root-owned, so the move step needs `sudo`."
+
+  path_file: "~/.profile"
+  path_file_alt: "~/.bashrc"
+  path_stanza: 'export PATH="{bin_dir}:$PATH"'
+  path_reload: "source {path_file}"
+  path_sep: ":"
+  path_warning: >-
+    A desktop or VNC session loads `~/.bashrc`; an SSH session loads
+    `~/.profile`. Pick the one matching how you actually use the machine, or
+    add it to both &mdash; but guard against adding the element twice.
+
+  quarantine: false
+
+  verify_cmd: "{launcher} --version"
+  which_cmd: "which {launcher}"
+
+  update_style: move-aside
+
+windows:
+  name: Windows
+  label: "Windows (x64 and ARM64)"
+  order: 3
+
+  archs: [x64, arm64]
+  arch_detect: "**Settings &rarr; System &rarr; About**, then read **System type**."
+
+  install_root: 'C:\Programs\IronSheepProductions'
+  install_roots:
+    gui-app: 'C:\Programs\IronSheepProductions'
+    cli-tool: 'C:\Programs\IronSheepProductions'
+    server: 'C:\Program Files'
+  # Reads like a typo for "Program Files" and is not. FlexProp explicitly warns
+  # against unpacking into Program Files because it must write to its own
+  # install directory; a folder directly under C:\ is what they recommend.
+  root_note: >-
+    Note the path is `C:\Programs`, not `C:\Program Files`. That is deliberate:
+    a folder directly under `C:\` stays writable, which some tools require.
+  root_writable_by_user: true
+  privilege_note: >-
+    Adding a machine-wide PATH entry needs Administrator. Adding it to your
+    own account does not.
+
+  path_file: "System Properties &rarr; Environment Variables"
+  path_stanza: '{bin_dir}'
+  path_reload: "Open a new Command Prompt (existing ones keep the old PATH)."
+  path_sep: ";"
+
+  quarantine: false
+  smartscreen: true
+  smartscreen_note: >-
+    Windows builds are not code-signed yet. SmartScreen will show
+    "Windows protected your PC" on first run &mdash; choose **More info** then
+    **Run anyway**.
+
+  unzip_note: >-
+    Some unzip tools create an extra folder named after the .zip. If that
+    happens, move the inner folder up one level and delete the empty wrapper.
+
+  verify_cmd: "{launcher} --version"
+  which_cmd: "where {launcher}"
+
+  update_style: move-aside

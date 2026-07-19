@@ -1,0 +1,263 @@
+# ---------------------------------------------------------------------------
+# TOOL DECLARATIONS
+#
+# Each tool declares, per platform, the four facts that generate every install
+# instruction anywhere in the fleet:
+#
+#   install_dir  where the unpacked folder lives
+#   bin_dir      the directory that goes on PATH  (== install_dir unless nested)
+#   launcher     the exact filename the user and the extension both invoke
+#   asset        the release asset filename pattern
+#
+# These values are stated ONCE, here. Every mention in prose is interpolated.
+# The Spin2 extension's probe list is also declared here so `generate.py --check`
+# can prove the docs and the extension agree.
+#
+# VALUES BELOW ARE AS-SHIPPED TODAY, including known inconsistencies, so the
+# conformance check reports real findings rather than an idealized fleet.
+# ---------------------------------------------------------------------------
+
+p2kb-mcp:
+  name: P2KB MCP
+  kind: server
+  order: 1
+  tier: agentic                     # Part 1 — the stopping point
+  role: "P2 knowledge server for AI coding agents"
+  repo: ironsheep/P2-Knowledge-Base-MCP
+  blurb: >-
+    Gives Claude, Cursor, or Codex authoritative Propeller 2 knowledge &mdash;
+    silicon architecture, the PASM2 instruction set, Spin2, and the OBEX
+    object library. No P2 hardware required.
+  needs_path: false                 # invoked by the host via absolute path
+  needs_host_registration: true
+  platforms:
+    macos:
+      install_dir: "/opt/p2kb-mcp"
+      bin_dir: "/opt/p2kb-mcp/bin"
+      launcher: "p2kb-mcp"
+      asset: "p2kb-mcp-v{version}-darwin-{arch}.tar.gz"
+      archive: tar.gz
+      sudo: true                    # /opt, not /Applications — see conformance
+    linux:
+      install_dir: "/opt/p2kb-mcp"
+      bin_dir: "/opt/p2kb-mcp/bin"
+      launcher: "p2kb-mcp"
+      asset: "p2kb-mcp-v{version}-linux-{arch}.tar.gz"
+      archive: tar.gz
+      sudo: true
+    windows:
+      install_dir: 'C:\Program Files\p2kb-mcp'
+      bin_dir: 'C:\Program Files\p2kb-mcp\bin'
+      launcher: "p2kb-mcp.exe"
+      asset: "p2kb-mcp-v{version}-windows-{arch}.zip"
+      archive: zip
+      sudo: true
+
+pnut-ts:
+  name: PNut-TS
+  kind: cli-tool
+  order: 2
+  tier: toolchain                   # Part 2
+  role: "Spin2 / PASM2 compiler"
+  repo: ironsheep/PNut-TS
+  blurb: >-
+    Compiles Spin2 and PASM2 to a P2 binary. Cross-platform, self-contained,
+    no runtime required.
+  needs_path: true
+  platforms:
+    macos:
+      install_dir: "/Applications/pnut_ts"
+      bin_dir: "/Applications/pnut_ts"
+      launcher: "pnut-ts"
+      asset: "pnut-ts-macos-{arch}-{packed}.zip"
+      archive: zip-of-dmg
+      # Verified on macOS: dragging onto an existing copy offers [Stop][Replace].
+      # Plain folder — Merge is NOT offered, so Replace is unambiguous.
+      upgrade: finder-replace
+    linux:
+      install_dir: "/opt/pnut_ts"
+      bin_dir: "/opt/pnut_ts"
+      launcher: "pnut-ts"
+      asset: "pnut-ts-linux-{arch}-{packed}.zip"
+      archive: zip
+      sudo: true
+    windows:
+      install_dir: 'C:\Programs\IronSheepProductions\pnut_ts'
+      bin_dir: 'C:\Programs\IronSheepProductions\pnut_ts'
+      launcher: "pnut-ts.exe"
+      asset: "pnut-ts-win-{arch}-{packed}.zip"
+      archive: zip
+
+pnut-term-ts:
+  name: PNut-Term-TS
+  kind: gui-app
+  order: 3
+  tier: toolchain
+  role: "download and debug terminal"
+  repo: ironsheep/PNut-Term-TS
+  blurb: >-
+    Downloads a compiled binary to the P2 over a PropPlug and hosts the
+    DEBUG() display windows.
+  needs_path: true
+  needs_serial: true
+  platforms:
+    macos:
+      install_dir: "/Applications/PNut-Term-TS.app"
+      bin_dir: "/Applications/PNut-Term-TS.app/Contents/Resources/bin"
+      launcher: "pnut-term-ts"
+      asset: "pnut-term-ts-macos-{arch}-{packed}.zip"
+      archive: zip-of-dmg
+      # Verified on macOS: [Keep Both][Stop][Replace]. Keep Both renames the
+      # INCOMING app, leaving the old one canonical and still on PATH — a
+      # silent non-upgrade. Must be warned against explicitly.
+      upgrade: finder-replace
+      upgrade_warn_keep_both: true
+    linux:
+      install_dir: "/opt/pnut_term_ts"
+      bin_dir: "/opt/pnut_term_ts/bin"
+      launcher: "pnut-term-ts"
+      asset: "pnut-term-ts-linux-{arch}-{packed}.zip"
+      archive: zip
+      sudo: true
+    windows:
+      install_dir: 'C:\Programs\IronSheepProductions\pnut_term_ts'
+      bin_dir: 'C:\Programs\IronSheepProductions\pnut_term_ts'
+      launcher: "pnut-term-ts.cmd"
+      asset: "pnut-term-ts-windows-{arch}-{packed}.zip"
+      archive: zip
+
+flexprop:
+  name: FlexProp
+  kind: cli-tool
+  order: 4
+  tier: toolchain
+  optional: true                    # an alternative compiler, not an extra step
+  alternative_to: pnut-ts
+  owner: third-party                # Total Spectrum — we do not control packaging
+  role: "alternative Spin/Spin2 compiler and loader (P1 and P2)"
+  repo: totalspectrum/flexprop
+  download_url: "https://github.com/totalspectrum/flexprop/releases/latest"
+  blurb: >-
+    Eric Smith's toolchain. Compiles Spin, Spin2, BASIC and C, and loads both
+    P1 and P2. Install it only if you want it &mdash; PNut-TS alone is enough
+    to build and run P2 code.
+  needs_path: true
+  # The extension finds flexspin, then locates the rest RELATIVE to it.
+  # These are not searched globally, so the bundle must stay intact.
+  components:
+    - { name: loadp2,               where: "same directory as flexspin" }
+    - { name: proploader,           where: "same directory as flexspin" }
+    - { name: P2ES_flashloader.bin, where: "../board, relative to flexspin" }
+  platforms:
+    macos:
+      install_dir: "/Applications/flexprop"
+      bin_dir: "/Applications/flexprop/bin"
+      launcher: "flexspin.mac"      # extension appends .mac on macOS
+      asset: ""
+      archive: third-party
+    linux:
+      install_dir: "/opt/flexprop"
+      bin_dir: "/opt/flexprop/bin"
+      launcher: "flexspin"
+      asset: ""
+      # No Linux binary release exists — FlexProp is built from source here.
+      archive: third-party-build
+      sudo: true
+    windows:
+      install_dir: 'C:\Programs\TotalSpectrum\flexprop'
+      bin_dir: 'C:\Programs\TotalSpectrum\flexprop\bin'
+      launcher: "flexspin.exe"
+      asset: ""
+      archive: third-party
+
+pnut:
+  name: Parallax PNut
+  kind: cli-tool
+  order: 5
+  tier: toolchain
+  optional: true
+  alternative_to: pnut-ts
+  owner: third-party                # Parallax Inc — Windows only
+  role: "the reference Spin2 compiler and debugger (Windows only)"
+  repo: ""
+  download_url: "https://www.parallax.com/package/propeller-2-language-and-ide/"
+  blurb: >-
+    Chip Gracey's original Windows PNut. Install it if you want the reference
+    implementation alongside the cross-platform tools.
+  needs_path: true
+  needs_version_literal: true       # pnut_shell.bat hard-codes the version
+  platforms:
+    windows:
+      install_dir: 'C:\Program Files (x86)\Parallax Inc\PNut'
+      bin_dir: 'C:\Program Files (x86)\Parallax Inc\PNut'
+      launcher: "pnut_shell.bat"
+      # Parallax ships BOTH wrappers; both carry the version literal.
+      extra_files: ["pnut_report.bat"]
+      asset: ""
+      archive: third-party
+
+spin2-extension:
+  name: Spin2 VSCode extension
+  kind: cli-tool
+  order: 6                          # LAST — so discovery finds everything else
+  tier: toolchain
+  role: "editor, language server, and build front end"
+  repo: ironsheep/P2-vscode-langserv-extension
+  blurb: >-
+    Syntax, code navigation, and one-key compile/download. Discovers the tools
+    above automatically once they are installed in the standard locations.
+  needs_path: false
+  marketplace_id: ironsheepproductionsllc.spin2
+  discovers: [pnut-ts, pnut-term-ts, flexprop, pnut]
+  platforms:
+    macos:   { install_dir: "", bin_dir: "", launcher: "", asset: "" }
+    linux:   { install_dir: "", bin_dir: "", launcher: "", asset: "" }
+    windows: { install_dir: "", bin_dir: "", launcher: "", asset: "" }
+
+# ---------------------------------------------------------------------------
+# CONFORMANCE: what the Spin2 extension actually probes today.
+# Transcribed from spin2/client/src/extension.ts locateTools().
+# `generate.py --check` proves each tool's bin_dir is reachable.
+# ---------------------------------------------------------------------------
+_extension_probes:
+  macos:
+    - "/Applications/flexprop/bin"
+    - "~/Applications"                                            # tilde never expanded
+    - "/Applications/pnut_ts"
+    - "/Applications/PNut-Term-TS.app/Contents/Resources/bin"
+    - "~/bin"                                                     # tilde never expanded
+    - "/usr/local/bin"
+    - "/opt/local/bin"
+  linux:
+    - "~/bin"                                                     # tilde never expanded
+    - "/usr/local/bin"
+    - "/opt/flexprop/bin"
+    - "/opt/pnut_ts"
+    - "/opt/pnut_term_ts/bin"
+  windows:
+    - 'C:\Program Files (x86)\Parallax Inc'
+    - 'C:\Program Files (x86)\Parallax Inc\PNut'
+    - 'C:\Programs\IronSheepProductions\pnut_ts'
+    - 'C:\Programs\IronSheepProductions\pnut_term_ts'
+    - 'C:\Programs\TotalSpectrum\flexprop\bin'
+
+# What the extension searches for by name, per platform (fileUtils.platformExeName)
+_extension_search_names:
+  macos:   { pnut-ts: "pnut-ts",     pnut-term-ts: "pnut-term-ts",     flexprop: "flexspin.mac" }
+  linux:   { pnut-ts: "pnut-ts",     pnut-term-ts: "pnut-term-ts",     flexprop: "flexspin" }
+  windows: { pnut-ts: "pnut-ts.exe", pnut-term-ts: "pnut-term-ts.exe", flexprop: "flexspin.exe", pnut: "pnut_shell.bat" }
+
+# ---------------------------------------------------------------------------
+# ACKNOWLEDGED DEFECTS
+# Real conformance failures we have chosen to document around rather than fix.
+# Listing one here keeps CI green while still reporting it on every run — the
+# point is that it stays visible, not that it stays silent. Remove the entry
+# when the underlying issue is fixed and CI will start enforcing it again.
+# ---------------------------------------------------------------------------
+_accepted:
+  - id: "windows/pnut-term-ts/launcher"
+    why: >-
+      The Windows package ships pnut-term-ts.cmd; the Spin2 extension searches
+      for pnut-term-ts.exe, so auto-discovery cannot succeed on Windows. The
+      Windows guide instructs the user to set
+      spinExtension.toolchain.paths.PNutTermTs by hand as an install step.

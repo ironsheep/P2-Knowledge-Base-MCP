@@ -1,0 +1,137 @@
+# ---------------------------------------------------------------------------
+# ENVIRONMENT — everything the install docs cover that is not one of our tools.
+#
+# Three categories the tool-centric model could not express:
+#   prerequisites  things that must already exist before a tool is useful
+#   conflicts      things that must be REMOVED or disabled (negative steps)
+#   hardware       per-platform device access setup
+#
+# All IDs and symptoms below are transcribed from the shipped docs, not invented.
+# ---------------------------------------------------------------------------
+
+prerequisites:
+  - id: mcp-host
+    name: An MCP-capable agent
+    for: [p2kb-mcp]
+    detail: >-
+      Claude Code, Claude Desktop, Cursor, or Codex. P2KB MCP is a server your
+      agent talks to &mdash; it does nothing on its own. Install one first.
+  - id: vscode
+    name: Visual Studio Code
+    for: [spin2-extension]
+    min_version: "1.96.0"
+    url: "https://code.visualstudio.com/"
+    detail: "The Spin2 extension requires VS Code 1.96.0 or newer."
+  - id: propplug
+    name: Parallax PropPlug (or compatible FTDI adapter)
+    for: [pnut-term-ts]
+    kind: hardware
+    detail: >-
+      The USB-to-serial adapter that connects your P2 board to the computer.
+      Needed to download code and see DEBUG() output &mdash; not needed to compile.
+
+# Negative install steps. These grow silently and go stale, which is exactly
+# why they belong in data rather than scattered across README prose.
+conflicts:
+  - name: Spin (by Entomy)
+    id: Entomy.spin
+    affects: spin2-extension
+    action: uninstall
+    symptom: >-
+      the Spin2 extension provides more comprehensive syntax highlighting plus
+      semantic highlighting, outlining, and tab support, and the older
+      extension is no longer maintained.
+    severity: obsolete            # safe to remove, no loss of functionality
+  - name: Overtype (by Adam Maras)
+    id: adammaras.overtype
+    affects: spin2-extension
+    action: disable or uninstall
+    symptom: interferes with the Spin2 extension's Insert/Overtype mode handling
+    severity: breaks
+  - name: Overtype (by DrMerfy)
+    id: DrMerfy.overtype
+    affects: spin2-extension
+    action: disable or uninstall
+    symptom: interferes with the Spin2 extension's Insert/Overtype mode handling
+    severity: breaks
+  - name: Document This
+    id: oouo-diogo-perdigao.docthis
+    affects: spin2-extension
+    action: rebind or disable
+    symptom: >-
+      Claims the same Ctrl+Alt+D keybinding used for document generation.
+      There is no clean fix &mdash; the documented workaround is to click back
+      into the editor and press the key again, which may take several tries.
+    severity: annoyance
+
+# Optional, recommended alongside the extension. Never required.
+companions:
+  - name: Error Lens
+    id: usernamehw.errorlens
+    why: shows compiler errors inline on the offending line
+  - name: Explorer Exclude
+    id: redvanworkshop.explorer-exclude-vscode-extension
+    why: hides build output folders from the file explorer
+  - name: Serial Monitor
+    id: ms-vscode.vscode-serial-monitor
+    why: a general-purpose serial terminal, for work outside PNut-Term-TS
+
+# Device access, per platform. Required before a download to the P2 will work.
+hardware:
+  macos:
+    - title: Serial access
+      detail: >-
+        Grant access if macOS prompts on first use. PropPlugs appear as
+        /dev/tty.usbserial-*. No driver install is normally required.
+  linux:
+    - title: Serial group membership
+      detail: >-
+        Add yourself to the dialout group, then log out and back in for it to
+        take effect.
+      command: "sudo usermod -a -G dialout $USER"
+    - title: Confirm the PropPlug is seen
+      detail: >-
+        Plug in the PropPlug and check that it appears. No driver install and no
+        udev rule are required &mdash; the PropPlug uses a standard FTDI
+        vendor/product pair that Linux has recognised for years.
+      command: "ls -l /dev/ttyUSB*"
+  windows:
+    - title: COM port
+      detail: >-
+        Windows normally installs the FTDI driver automatically. Confirm the
+        COM number in Device Manager, and make sure no other application is
+        holding the port.
+
+# Where the doc-level consequences of known tool/code defects live. These are
+# not install steps — they are the recovery paths for things that do go wrong.
+troubleshooting:
+  - title: A tool is not found in the terminal
+    platforms: [macos, linux, windows]
+    detail: >-
+      Confirm the PATH entry, then open a NEW terminal — existing ones keep the
+      old PATH.
+  - title: The Spin2 extension did not find a tool
+    platforms: [macos, linux, windows]
+    detail: >-
+      The extension scans when it activates. Reload the VS Code window after
+      installing a tool. If it still does not appear, use the command
+      **Spin2: Add Compiler** to point at the executable directly.
+  - title: PNut builds fail after upgrading PNut
+    platforms: [windows]
+    detail: >-
+      `pnut_shell.bat` and `pnut_report.bat` name the PNut executable by exact
+      version. If the version in those files does not match the .exe in the
+      folder, builds fail. Open both, check the `pnut_vNN` value, and correct
+      it to match. Parallax ships these files, and the version occasionally
+      lags a release.
+  - title: The PropPlug does not appear as /dev/ttyUSB*
+    platforms: [linux]
+    detail: >-
+      Check that the adapter enumerates at all with `lsusb`. A PropPlug Rev E
+      reports as `0403:6015`; earlier revisions report `0403:6001`. Both are
+      standard FTDI pairs that Linux binds automatically &mdash; neither needs
+      a udev rule.
+      Then run `dmesg | tail -20` right after plugging it in; you should see
+      `ftdi_sio` attaching it to a ttyUSB device. If it enumerates but no
+      driver claims it, you have an adapter with a non-standard product ID and
+      will need a udev rule naming that ID.
