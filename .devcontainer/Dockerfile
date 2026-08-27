@@ -1,6 +1,24 @@
 # Dev container for P2KB MCP development
 FROM mcr.microsoft.com/devcontainers/go:1.23-bookworm
 
+# --- git: trust the workspace bind mount -------------------------------------
+# The workspace arrives over a virtiofs bind mount whose uid attribution is
+# occasionally transient -- the same path can report uid 1000 one moment and a
+# different uid the next with nothing changed on disk. Git's ownership check
+# then refuses with "detected dubious ownership" and every git query in the tree
+# fails. Intermittently, which is worse than always: it makes gates that
+# discover their inputs with `git ls-files` report green having read nothing.
+#
+# System scope, because ~/.gitconfig is a READ-ONLY bind mount. Git writes
+# config by rename, so `git config --global` there fails with EBUSY -- the
+# remedy git itself prints cannot be applied in this container. /etc/gitconfig
+# is root-owned, baked, and survives rebuilds. VS Code appends its credential
+# helper to the same file at container start; the two coexist.
+#
+# Scoped to /workspaces/* rather than '*' so the check stays live elsewhere.
+# A trailing /* matches at any depth.
+RUN git config --system --add safe.directory '/workspaces/*'
+
 # Remove stale Yarn repo that ships with the base image (expired GPG key)
 RUN rm -f /etc/apt/sources.list.d/yarn.list
 
