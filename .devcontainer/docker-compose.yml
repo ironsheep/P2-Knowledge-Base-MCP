@@ -5,7 +5,13 @@ services:
       dockerfile: .devcontainer/Dockerfile
     volumes:
       - ..:/workspaces/P2-Knowledge-Base-MCP:cached
+      # Persist todo-mcp task data across container rebuilds. Must be a named
+      # volume -- a host bind mount corrupts SQLite over the Docker Desktop fs.
+      - todo-mcp-data:/home/vscode/.local/share/todo-mcp
     environment:
       P2KB_LOG_LEVEL: "debug"
     init: true
     command: sleep infinity
+
+volumes:
+  todo-mcp-data:
