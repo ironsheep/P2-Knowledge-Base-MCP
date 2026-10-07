@@ -21,6 +21,7 @@ type Manager struct {
 	mu       sync.RWMutex
 	cacheDir string
 	memory   map[string]cacheEntry
+	rule     filter.Rule // rule in effect, as last delivered by SetRule
 }
 
 type cacheEntry struct {
@@ -34,7 +35,23 @@ func NewManager(fetcher *fetch.Client) *Manager {
 		fetcher:  fetcher,
 		cacheDir: paths.GetCacheDirOrDefault(),
 		memory:   make(map[string]cacheEntry),
+		rule:     filter.BuiltinRule,
 	}
+}
+
+// SetRule receives the rule in effect from the index manager. For now it
+// only records the rule; stamping the cache and filtering under it follow.
+func (m *Manager) SetRule(rule filter.Rule) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rule = rule
+}
+
+// Rule returns the rule last delivered by SetRule.
+func (m *Manager) Rule() filter.Rule {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.rule
 }
 
 // GetOrFetch resolves content for a key using an mtime-aware three-tier lookup.

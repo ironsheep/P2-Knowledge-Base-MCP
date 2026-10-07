@@ -776,14 +776,19 @@ const testVersion = "1.0.0"
 // newTestServer creates the server every server test uses, isolated from the
 // developer's machine: the cache dir is a temp dir, the index and content come
 // from a fresh kbtest.Remote (returned so the test can shape what it serves),
-// and the working directory is a temp dir so downloads land there. It is the
-// only caller of New in the package's tests.
-func newTestServer(t *testing.T) (*Server, *kbtest.Remote) {
+// and the working directory is a temp dir so downloads land there. Each seed
+// runs on the cache dir before New, to model what a previous run left there.
+// It is the only caller of New in the package's tests.
+func newTestServer(t *testing.T, seeds ...func(cacheDir string)) (*Server, *kbtest.Remote) {
 	t.Helper()
 	r := kbtest.NewRemote(t)
+	cacheDir := t.TempDir()
 	t.Setenv(fetch.BaseURLEnv, r.URL())
-	t.Setenv("P2KB_CACHE_DIR", t.TempDir())
+	t.Setenv("P2KB_CACHE_DIR", cacheDir)
 	chdirTemp(t)
+	for _, seed := range seeds {
+		seed(cacheDir)
+	}
 	return New(testVersion), r
 }
 

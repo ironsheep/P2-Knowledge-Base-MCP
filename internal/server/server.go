@@ -46,15 +46,20 @@ type MCPError struct {
 }
 
 // New creates and initializes a new MCP server instance. The index and cache
-// managers share one fetcher, whose base URL is resolved here, once.
+// managers share one fetcher, whose base URL is resolved here, once. The
+// filter rule in effect reaches the cache through one callback, and is
+// resolved from the cached index before the first request.
 func New(version string) *Server {
 	fetcher := fetch.New()
-	return &Server{
+	s := &Server{
 		version:      version,
 		indexManager: index.NewManager(fetcher),
 		cacheManager: cache.NewManager(fetcher),
 		obexManager:  obex.NewManager(),
 	}
+	s.indexManager.OnRuleChange(s.cacheManager.SetRule)
+	s.indexManager.ResolveStartupRule()
+	return s
 }
 
 // Run starts the MCP server's main loop, processing requests from stdin.

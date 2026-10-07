@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
@@ -32,6 +33,9 @@ type Index struct {
 	Categories map[string][]string  `json:"categories"`
 	Files      map[string]FileEntry `json:"files"`
 	Aliases    map[string][]string  `json:"aliases"` // alias -> []canonical keys (first wins)
+	// DeliveryFilter is the raw delivery_filter block, absent before KB index
+	// 3.6.0. It is parsed by resolveRule, never directly.
+	DeliveryFilter json.RawMessage `json:"delivery_filter,omitempty"`
 }
 
 // SystemInfo contains metadata about the index.
@@ -84,16 +88,21 @@ type Manager struct {
 	lastRefresh      time.Time
 	ttl              time.Duration
 	lastErrorRefresh time.Time // Tracks last refresh-on-error attempt to prevent refresh storms
+
+	filterStatus    FilterStatus      // rule in effect; guarded by mu
+	onRule          func(filter.Rule) // rule-change callback; guarded by mu
+	deliveredRuleID string            // rule id last passed to onRule; guarded by fetchMu
 }
 
 // NewManager creates a new index manager that fetches through fetcher.
 func NewManager(fetcher *fetch.Client) *Manager {
 	cacheDir := paths.GetCacheDirOrDefault()
 	return &Manager{
-		fetcher:   fetcher,
-		indexPath: filepath.Join(cacheDir, "index", "p2kb-index.json"),
-		metaPath:  filepath.Join(cacheDir, "index", "p2kb-index.meta"),
-		ttl:       getIndexTTL(),
+		fetcher:      fetcher,
+		indexPath:    filepath.Join(cacheDir, "index", "p2kb-index.json"),
+		metaPath:     filepath.Join(cacheDir, "index", "p2kb-index.meta"),
+		ttl:          getIndexTTL(),
+		filterStatus: builtinStatus(),
 	}
 }
 
@@ -121,13 +130,10 @@ func (m *Manager) EnsureIndex() error {
 	}
 	m.mu.RUnlock()
 
-	// Try to load from cache (quick file I/O, safe to hold write lock briefly)
-	m.mu.Lock()
+	// Try the cache file (file I/O under fetchMu only, never the data lock)
 	if m.loadFromCache() {
-		m.mu.Unlock()
 		return nil
 	}
-	m.mu.Unlock()
 
 	// Fetch from remote WITHOUT holding the data lock
 	// This is the critical fix: network I/O happens outside the lock
@@ -137,17 +143,7 @@ func (m *Manager) EnsureIndex() error {
 		return fmt.Errorf("index fetch failed: %w", err)
 	}
 
-	// Update the index under write lock (quick operation)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Save to cache
-	if err := m.saveToCache(data); err != nil {
-		fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: failed to cache index: %v\n", err)
-	}
-
-	m.index = idx
-	m.lastRefresh = time.Now()
+	m.installIndex(idx, data, time.Now())
 	return nil
 }
 
@@ -165,16 +161,7 @@ func (m *Manager) Refresh() error {
 		return fmt.Errorf("index refresh failed: %w", err)
 	}
 
-	// Update the index under write lock
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if err := m.saveToCache(data); err != nil {
-		fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: failed to cache index: %v\n", err)
-	}
-
-	m.index = idx
-	m.lastRefresh = time.Now()
+	m.installIndex(idx, data, time.Now())
 	return nil
 }
 
@@ -773,7 +760,8 @@ func (m *Manager) GetIndexStatus() IndexStatus {
 	return status
 }
 
-// loadFromCache attempts to load the index from the local cache.
+// loadFromCache installs the cached index if it is within the TTL, returning
+// whether it did. The caller holds fetchMu and not the data lock.
 func (m *Manager) loadFromCache() bool {
 	// Check if cache exists and is fresh
 	info, err := os.Stat(m.indexPath)
@@ -797,8 +785,7 @@ func (m *Manager) loadFromCache() bool {
 		return false
 	}
 
-	m.index = &idx
-	m.lastRefresh = info.ModTime()
+	m.installIndex(&idx, nil, info.ModTime())
 	return true
 }
 

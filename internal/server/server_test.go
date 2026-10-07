@@ -2,7 +2,14 @@ package server
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/filter"
+	"github.com/ironsheep/p2kb-mcp/internal/index"
 )
 
 func TestNew(t *testing.T) {
@@ -18,6 +25,50 @@ func TestNew(t *testing.T) {
 	}
 	if srv.cacheManager == nil {
 		t.Error("cacheManager is nil")
+	}
+}
+
+// testRuleBlock is a valid delivery_filter block that differs from BuiltinRule.
+const testRuleBlock = `{"format":1,"remove_fields":["source"],"remove_column0_comments":false}`
+
+// TestNewDeliversStartupRuleToCache: the rule persisted by a previous run
+// reaches the cache manager inside New, before any request.
+func TestNewDeliversStartupRuleToCache(t *testing.T) {
+	srv, r := newTestServer(t, func(cacheDir string) {
+		dir := filepath.Join(cacheDir, "index")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "delivery-filter.json"), []byte(testRuleBlock), 0644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	want, _ := filter.ParseRule(json.RawMessage(testRuleBlock))
+	if got := srv.cacheManager.Rule(); !reflect.DeepEqual(got, want) {
+		t.Errorf("cache rule after New = %+v, want the last-good rule %+v", got, want)
+	}
+	if got := srv.indexManager.FilterStatus().Source; got != index.RuleSourceLastGood {
+		t.Errorf("rule source = %q, want %q", got, index.RuleSourceLastGood)
+	}
+	if hits := r.Hits(fetch.IndexPath); hits != 0 {
+		t.Errorf("New fetched the index %d times, want 0", hits)
+	}
+}
+
+// TestIndexRuleChangeReachesCache: a rule arriving with a fetched index is
+// delivered to the cache manager through the callback New registers.
+func TestIndexRuleChangeReachesCache(t *testing.T) {
+	srv, r := newTestServer(t)
+	idx := r.Index()
+	idx.DeliveryFilter = json.RawMessage(testRuleBlock)
+	r.SetIndex(idx)
+
+	if err := srv.indexManager.EnsureIndex(); err != nil {
+		t.Fatalf("EnsureIndex: %v", err)
+	}
+	want, _ := filter.ParseRule(json.RawMessage(testRuleBlock))
+	if got := srv.cacheManager.Rule(); !reflect.DeepEqual(got, want) {
+		t.Errorf("cache rule = %+v, want the index rule %+v", got, want)
 	}
 }
 
