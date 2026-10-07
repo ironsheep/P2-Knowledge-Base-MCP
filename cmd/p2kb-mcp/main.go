@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 	"github.com/ironsheep/p2kb-mcp/internal/server"
 )
 
@@ -37,7 +38,7 @@ func main() {
 			fmt.Println("Environment variables:")
 			fmt.Println("  P2KB_CACHE_DIR     Cache directory (default: ~/.p2kb-mcp)")
 			fmt.Println("  P2KB_INDEX_TTL     Index TTL in seconds (default: 300)")
-			fmt.Println("  P2KB_LOG_LEVEL     Log level: debug, info, warn, error (default: info)")
+			fmt.Println("  P2KB_LOG_LEVEL     Log level: debug, info, warn, error (default: warn)")
 			fmt.Println("  P2KB_BASE_URL      KB content host (default: " + fetch.DefaultBaseURL + ")")
 			fmt.Println()
 			fmt.Println("This server communicates via MCP protocol over stdin/stdout.")
@@ -50,10 +51,7 @@ func main() {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
-	logLevel := os.Getenv("P2KB_LOG_LEVEL")
-	if logLevel == "debug" {
-		log.Printf("P2KB MCP Server v%s (built %s, commit %s)", Version, BuildTime, GitCommit)
-	}
+	logging.Debugf("P2KB MCP Server v%s (built %s, commit %s)", Version, BuildTime, GitCommit)
 
 	srv := server.New(Version)
 	if err := srv.Run(); err != nil {

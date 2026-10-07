@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 )
 
 // DefaultBaseURL is the KB's raw-content host, used when P2KB_BASE_URL is unset.
@@ -65,8 +67,18 @@ func (c *Client) URL(path string) string {
 // ignores client Cache-Control but keys on the query string, so the ?t= is
 // what forces a fresh origin fetch. Without bust the request is plain, so the
 // CDN edge may answer it.
-func (c *Client) Fetch(path string, bust bool) ([]byte, error) {
+//
+// Every request logs one line at debug: method, URL, bust, status, bytes and
+// duration (status 0 when no response arrived).
+func (c *Client) Fetch(path string, bust bool) (data []byte, err error) {
 	url := c.URL(path)
+	start := time.Now()
+	status := 0
+	defer func() {
+		logging.Debugf("fetch GET %s bust=%t status=%d bytes=%d duration=%s",
+			url, bust, status, len(data), time.Since(start).Round(time.Microsecond))
+	}()
+
 	reqURL := url
 	if bust {
 		reqURL = fmt.Sprintf("%s?t=%d", url, time.Now().UnixNano())
@@ -86,12 +98,13 @@ func (c *Client) Fetch(path string, bust bool) ([]byte, error) {
 		return nil, fmt.Errorf("network error fetching %s: %w", url, err)
 	}
 	defer resp.Body.Close()
+	status = resp.StatusCode
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, url)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err = io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", url, err)
 	}

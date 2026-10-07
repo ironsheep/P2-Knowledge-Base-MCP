@@ -4,12 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"os"
 	"regexp"
 	"strings"
 
 	"github.com/ironsheep/p2kb-mcp/internal/cache"
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 )
 
 // ToolCallParams represents the params for a tools/call request.
@@ -646,10 +645,7 @@ func (s *Server) successResponse(id interface{}, result interface{}) *MCPRespons
 
 func (s *Server) errorResponse(id interface{}, code int, message string, data interface{}) *MCPResponse {
 	// Log errors to stderr for diagnostics (visible to users checking logs)
-	logLevel := os.Getenv("P2KB_LOG_LEVEL")
-	if logLevel == "debug" || logLevel == "info" {
-		log.Printf("p2kb-mcp error [%d]: %s (data: %v)", code, message, data)
-	}
+	logging.Infof("p2kb-mcp error [%d]: %s (data: %v)", code, message, data)
 
 	return &MCPResponse{
 		JSONRPC: "2.0",

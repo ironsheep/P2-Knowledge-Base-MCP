@@ -360,7 +360,7 @@ func newRemoteManager(t *testing.T, bodies ...string) (*Manager, *kbtest.Remote)
 	t.Helper()
 	r := kbtest.NewRemote(t)
 	r.Put(testContentPath, bodies...)
-	return &Manager{fetcher: r.Client(), cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}, r
+	return &Manager{fetcher: r.Client(), cacheDir: t.TempDir(), memory: make(map[string]cacheEntry), rule: filter.BuiltinRule}, r
 }
 
 // assertBusted checks which requests for testContentPath cache-busted.

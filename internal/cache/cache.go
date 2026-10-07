@@ -4,24 +4,40 @@ package cache
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
 // Manager handles caching of P2KB content.
+//
+// Every cached body was filtered under the rule in effect, and the cache dir
+// carries a stamp naming that rule and the filter engine (agreement §6).
+//
+// Locking: mu guards the in-memory state and is never held across I/O.
+// diskMu serializes every write and removal in the cache dir — body writes,
+// discards, Clear and Invalidate* — so a discard can never interleave with a
+// body write. Lock order is diskMu, then mu.
 type Manager struct {
 	fetcher  *fetch.Client
-	mu       sync.RWMutex
 	cacheDir string
-	memory   map[string]cacheEntry
-	rule     filter.Rule // rule in effect, as last delivered by SetRule
+
+	diskMu sync.Mutex
+
+	mu     sync.RWMutex
+	memory map[string]cacheEntry
+	rule   filter.Rule // rule in effect, as last delivered by SetRule
+	stamp  string      // stamp of rule; "" until SetRule
+	gen    uint64      // bumped by every SetRule and Clear
 }
 
 type cacheEntry struct {
@@ -29,7 +45,11 @@ type cacheEntry struct {
 	mtime   int64
 }
 
-// NewManager creates a new cache manager that fetches through fetcher.
+// stampFile names the cache stamp inside <cacheDir>/cache.
+const stampFile = "filter-stamp"
+
+// NewManager creates a new cache manager that fetches through fetcher. It
+// filters under BuiltinRule until SetRule delivers the rule in effect.
 func NewManager(fetcher *fetch.Client) *Manager {
 	return &Manager{
 		fetcher:  fetcher,
@@ -39,19 +59,84 @@ func NewManager(fetcher *fetch.Client) *Manager {
 	}
 }
 
-// SetRule receives the rule in effect from the index manager. For now it
-// only records the rule; stamping the cache and filtering under it follow.
-func (m *Manager) SetRule(rule filter.Rule) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.rule = rule
+// Stamp is the cache stamp for rule: "<rule_id>/<filter.EngineVersion>".
+func Stamp(rule filter.Rule) string {
+	return rule.RuleID() + "/" + filter.EngineVersion
 }
 
-// Rule returns the rule last delivered by SetRule.
+// SetRule makes rule the rule in effect. When the stamp on disk is not
+// rule's — a different rule, a different engine, or no stamp at all (a cache
+// from before stamping) — every cached body is discarded and the new stamp
+// written. Any fetch in flight re-filters under rule before it stores.
+func (m *Manager) SetRule(rule filter.Rule) {
+	stamp := Stamp(rule)
+
+	m.diskMu.Lock()
+	defer m.diskMu.Unlock()
+
+	discard := m.readStamp() != stamp
+
+	m.mu.Lock()
+	m.rule = rule
+	m.stamp = stamp
+	m.gen++
+	if discard {
+		m.memory = make(map[string]cacheEntry)
+	}
+	m.mu.Unlock()
+
+	if discard {
+		m.wipeDisk(stamp)
+	}
+}
+
+// Rule returns the rule in effect.
 func (m *Manager) Rule() filter.Rule {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.rule
+}
+
+// wipeDisk removes every cached body and writes stamp ("" writes none). The
+// caller holds diskMu.
+func (m *Manager) wipeDisk(stamp string) {
+	dir := filepath.Join(m.cacheDir, "cache")
+	if err := os.RemoveAll(dir); err != nil {
+		logging.Warnf("p2kb-mcp: warning: failed to clear cache %s: %v", dir, err)
+	}
+	if stamp == "" {
+		return
+	}
+	if err := m.writeStamp(stamp); err != nil {
+		// The next start finds no matching stamp and discards again.
+		logging.Warnf("p2kb-mcp: warning: failed to write cache stamp: %v", err)
+	}
+}
+
+func (m *Manager) stampPath() string {
+	return filepath.Join(m.cacheDir, "cache", stampFile)
+}
+
+// readStamp returns the stamp on disk, or "" when there is none.
+func (m *Manager) readStamp() string {
+	data, err := os.ReadFile(m.stampPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// writeStamp replaces the stamp atomically. The caller holds diskMu.
+func (m *Manager) writeStamp(stamp string) error {
+	path := m.stampPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(stamp+"\n"), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // GetOrFetch resolves content for a key using an mtime-aware three-tier lookup.
@@ -102,12 +187,13 @@ func (m *Manager) diskFileExists(key string) bool {
 // Returns (content, true) on a fresh hit, ("", false) when absent or stale.
 // It reuses the os.Stat result for hydration so the disk tier stats once.
 func (m *Manager) loadFromDiskIfFresh(key string, indexMtime int64) (string, bool) {
+	_, gen := m.snapshot()
 	info, err := os.Stat(m.cachePath(key))
 	if err != nil || info.ModTime().Unix() < indexMtime {
 		return "", false
 	}
 
-	content, err := m.readAndHydrate(key, info)
+	content, err := m.readAndHydrate(key, info, gen)
 	if err != nil {
 		return "", false
 	}
@@ -146,13 +232,16 @@ func (e *VerificationError) Error() string {
 // persistent mismatch nothing is cached and a *VerificationError is returned;
 // the slot stays empty so the next natural request retries.
 func (m *Manager) fetchAndStore(key, path, expectedSHA256 string, indexMtime int64) (string, error) {
+	// The fetch belongs to the generation in effect when it starts.
+	rule, gen := m.snapshot()
+
 	// Legacy / unverifiable path: a single non-busted fetch, no verification.
 	if expectedSHA256 == "" {
 		content, err := m.fetchContent(path, false)
 		if err != nil {
 			return "", err
 		}
-		return m.filterAndCache(key, content, indexMtime), nil
+		return m.filterAndCache(key, content, indexMtime, rule, gen), nil
 	}
 
 	// Verified path. Attempt 0 rides the CDN edge; later attempts cache-bust
@@ -171,7 +260,7 @@ func (m *Manager) fetchAndStore(key, path, expectedSHA256 string, indexMtime int
 
 		actual = sha256Hex(content)
 		if actual == expectedSHA256 {
-			return m.filterAndCache(key, content, indexMtime), nil
+			return m.filterAndCache(key, content, indexMtime, rule, gen), nil
 		}
 	}
 
@@ -179,19 +268,43 @@ func (m *Manager) fetchAndStore(key, path, expectedSHA256 string, indexMtime int
 	return "", &VerificationError{Key: key, Expected: expectedSHA256, Actual: actual}
 }
 
-// filterAndCache filters fetched content and stores it in memory and on disk,
-// stamped with indexMtime. Shared by the verified and legacy fetch paths.
-func (m *Manager) filterAndCache(key, rawContent string, indexMtime int64) string {
-	filtered := filter.Apply(filter.BuiltinRule, rawContent)
+// snapshot returns the rule in effect and its generation.
+func (m *Manager) snapshot() (filter.Rule, uint64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.rule, m.gen
+}
 
-	m.mu.Lock()
-	m.memory[key] = cacheEntry{content: filtered, mtime: indexMtime}
-	m.mu.Unlock()
+// filterAndCache filters fetched content under rule, the rule of generation
+// gen, and stores it in memory and on disk, stamped with indexMtime. Shared by
+// the verified and legacy fetch paths.
+//
+// The filter runs with no lock held. If SetRule or Clear ran since gen was
+// taken (the generation moved), the body filtered under the superseded rule
+// is dropped and the raw body, still in hand, is filtered again under the new
+// one: the caller never receives, and the cache never holds, a superseded
+// filtering. The generation is checked under diskMu, so no discard can fall
+// between the check and the disk write.
+func (m *Manager) filterAndCache(key, rawContent string, indexMtime int64, rule filter.Rule, gen uint64) string {
+	for {
+		filtered := filter.Apply(rule, rawContent)
 
-	// Save to disk (best effort), stamping the file mtime to match indexMtime.
-	_ = m.saveToDisk(key, filtered, indexMtime)
+		m.diskMu.Lock()
+		m.mu.Lock()
+		if m.gen != gen {
+			rule, gen = m.rule, m.gen
+			m.mu.Unlock()
+			m.diskMu.Unlock()
+			continue
+		}
+		m.memory[key] = cacheEntry{content: filtered, mtime: indexMtime}
+		m.mu.Unlock()
 
-	return filtered
+		// Save to disk (best effort), stamping the file mtime to match indexMtime.
+		_ = m.saveToDisk(key, filtered, indexMtime)
+		m.diskMu.Unlock()
+		return filtered
+	}
 }
 
 // sha256Hex returns the lowercase hex sha256 digest of s, matching the digest
@@ -201,27 +314,31 @@ func sha256Hex(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Clear clears all cached content.
+// Clear clears all cached content (p2kb_refresh flush) and rewrites the
+// stamp, so the emptied cache is still stamped for the rule in effect.
 func (m *Manager) Clear() {
+	m.diskMu.Lock()
+	defer m.diskMu.Unlock()
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Clear memory cache
 	m.memory = make(map[string]cacheEntry)
+	m.gen++
+	stamp := m.stamp
+	m.mu.Unlock()
 
-	// Clear disk cache
-	cacheDir := filepath.Join(m.cacheDir, "cache")
-	_ = os.RemoveAll(cacheDir)
+	m.wipeDisk(stamp)
 }
 
 // Invalidate removes a specific key from cache.
 func (m *Manager) Invalidate(key string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.diskMu.Lock()
+	defer m.diskMu.Unlock()
 
+	m.mu.Lock()
 	delete(m.memory, key)
-	cachePath := m.cachePath(key)
-	_ = os.Remove(cachePath)
+	m.mu.Unlock()
+
+	_ = os.Remove(m.cachePath(key))
 }
 
 // fetchContent fetches the content file at path. bust is passed to the
@@ -242,18 +359,26 @@ func (m *Manager) cachePath(key string) string {
 
 // loadFromDisk loads content from disk cache, recovering the stamped mtime.
 func (m *Manager) loadFromDisk(key string) (string, error) {
+	_, gen := m.snapshot()
 	// Stat first so we can recover the stamped mtime
 	info, err := os.Stat(m.cachePath(key))
 	if err != nil {
 		return "", err
 	}
-	return m.readAndHydrate(key, info)
+	return m.readAndHydrate(key, info, gen)
 }
+
+// errSuperseded reports a disk read that overlapped a discard: the body may
+// have been filtered under a superseded rule, so it is neither served nor
+// hydrated.
+var errSuperseded = errors.New("cache discarded during read")
 
 // readAndHydrate reads the cache file for key and stores it in the memory cache,
 // preserving the stamped mtime from info. Callers pass the os.FileInfo they
-// already statted so the disk read does not stat the file a second time.
-func (m *Manager) readAndHydrate(key string, info os.FileInfo) (string, error) {
+// already statted so the disk read does not stat the file a second time, and
+// gen, the generation taken before that stat: a read that overlapped SetRule
+// or Clear returns errSuperseded and hydrates nothing.
+func (m *Manager) readAndHydrate(key string, info os.FileInfo, gen uint64) (string, error) {
 	data, err := os.ReadFile(m.cachePath(key))
 	if err != nil {
 		return "", err
@@ -261,9 +386,11 @@ func (m *Manager) readAndHydrate(key string, info os.FileInfo) (string, error) {
 
 	// Also store in memory cache for faster access next time, preserving mtime
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.gen != gen {
+		return "", errSuperseded
+	}
 	m.memory[key] = cacheEntry{content: string(data), mtime: info.ModTime().Unix()}
-	m.mu.Unlock()
-
 	return string(data), nil
 }
 
@@ -387,19 +514,24 @@ func (m *Manager) GetMtime(key string) int64 {
 	return 0
 }
 
-// InvalidateKeys removes multiple keys from cache.
+// InvalidateKeys removes multiple keys from cache, returning how many memory
+// entries and disk files it removed.
 func (m *Manager) InvalidateKeys(keys []string) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.diskMu.Lock()
+	defer m.diskMu.Unlock()
 
 	count := 0
+	m.mu.Lock()
 	for _, key := range keys {
 		if _, ok := m.memory[key]; ok {
 			delete(m.memory, key)
 			count++
 		}
-		cachePath := m.cachePath(key)
-		if err := os.Remove(cachePath); err == nil {
+	}
+	m.mu.Unlock()
+
+	for _, key := range keys {
+		if err := os.Remove(m.cachePath(key)); err == nil {
 			count++
 		}
 	}

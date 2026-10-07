@@ -1,12 +1,66 @@
 package fetch_test
 
 import (
+	"bytes"
+	"log"
 	"strings"
 	"testing"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 )
+
+// captureLog sends the standard logger to a buffer at level l for the test.
+func captureLog(t *testing.T, l logging.Level) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prevOut, prevFlags := log.Writer(), log.Flags()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	prev := logging.SetLevel(l)
+	t.Cleanup(func() {
+		logging.SetLevel(prev)
+		log.SetOutput(prevOut)
+		log.SetFlags(prevFlags)
+	})
+	return &buf
+}
+
+func TestDebugLogsOneLinePerRequest(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put("a.yaml", "abcde")
+	c := r.Client()
+	buf := captureLog(t, logging.Debug)
+
+	_, _ = c.Fetch("a.yaml", false)
+	_, _ = c.Fetch("a.yaml", true)
+	_, _ = c.Fetch("missing.yaml", false)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("log lines = %d, want 3:\n%s", len(lines), buf)
+	}
+	for i, want := range []string{
+		"fetch GET " + c.URL("a.yaml") + " bust=false status=200 bytes=5 duration=",
+		"fetch GET " + c.URL("a.yaml") + " bust=true status=200 bytes=5 duration=",
+		"fetch GET " + c.URL("missing.yaml") + " bust=false status=404 bytes=0 duration=",
+	} {
+		if !strings.HasPrefix(lines[i], want) {
+			t.Errorf("line %d = %q, want prefix %q", i, lines[i], want)
+		}
+	}
+}
+
+func TestFetchIsSilentAboveDebug(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put("a.yaml", "a")
+	buf := captureLog(t, logging.DefaultLevel)
+	_, _ = r.Client().Fetch("a.yaml", false)
+	if buf.Len() != 0 {
+		t.Errorf("fetch logged at the default level: %q", buf)
+	}
+}
 
 func TestNewUsesDefaultBaseWhenUnset(t *testing.T) {
 	t.Setenv(fetch.BaseURLEnv, "")

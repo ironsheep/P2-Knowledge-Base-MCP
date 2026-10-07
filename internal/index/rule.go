@@ -3,12 +3,12 @@ package index
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 )
 
 // Rule sources, as p2kb_version reports them (agreement §5, §7).
@@ -88,7 +88,7 @@ func (m *Manager) installIndex(idx *Index, data []byte, refreshed time.Time) {
 	status := m.resolveRule(idx.DeliveryFilter)
 	if data != nil {
 		if err := m.saveToCache(data); err != nil {
-			fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: failed to cache index: %v\n", err)
+			logging.Warnf("p2kb-mcp: warning: failed to cache index: %v", err)
 		}
 	}
 
@@ -124,7 +124,7 @@ func (m *Manager) resolveRule(raw json.RawMessage) FilterStatus {
 		rule, err := filter.ParseRule(raw)
 		if err == nil {
 			if err := m.saveLastGood(rule); err != nil {
-				fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: failed to save last-good filter rule: %v\n", err)
+				logging.Warnf("p2kb-mcp: warning: failed to save last-good filter rule: %v", err)
 			}
 			return FilterStatus{Rule: rule, RuleID: rule.RuleID(), Source: RuleSourceIndex}
 		}
@@ -154,7 +154,7 @@ func (m *Manager) loadLastGood() (filter.Rule, bool) {
 	}
 	rule, err := filter.ParseRule(data)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "p2kb-mcp: warning: ignoring last-good filter rule %s: %v\n", m.lastGoodPath(), err)
+		logging.Warnf("p2kb-mcp: warning: ignoring last-good filter rule %s: %v", m.lastGoodPath(), err)
 		return filter.Rule{}, false
 	}
 	return rule, true
