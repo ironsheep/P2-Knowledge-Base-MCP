@@ -3,7 +3,6 @@ package paths
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -200,14 +199,9 @@ func TestFindInstallRoot(t *testing.T) {
 }
 
 func TestGetWindowsCacheDir(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows-only test")
-	}
-
 	// Test with LOCALAPPDATA set
 	tmpDir := t.TempDir()
-	os.Setenv("LOCALAPPDATA", tmpDir)
-	defer os.Unsetenv("LOCALAPPDATA")
+	t.Setenv("LOCALAPPDATA", tmpDir)
 
 	dir, err := getWindowsCacheDir()
 	if err != nil {

@@ -65,4 +65,6 @@ ref-mcp.tar.gz
 CLAUDE.md
 DOCs/forum-announcement-draft.md
 DOCs/REF/
-/internal
+
+# todo-mcp task archives (agent artifacts, never committed)
+tasks/
