@@ -302,7 +302,7 @@ the network. Delete the debris directories. Remove the needless Windows gate on
 package time drops accordingly (recorded, not targeted).
 
 ### 7.2 One stub, shared
-A single test helper package (the existing `internal/testdata` is the home) serves the index (gz),
+A single test helper package, `internal/kbtest`, serves the index (gz),
 content YAMLs and OBEX objects from an in-memory map, can gate a response (for §4.2's race test) and
 count hits per path. `cache`, `index`, `obex` and `server` tests use it; their per-package stubs
 (`stubRemoteSeq`, `stubIndexServer`, `newServerWithFilesAndContent`, …) are replaced, not wrapped.
@@ -406,7 +406,13 @@ path and listed from the main index (§5), stamp file + generation counter + dis
 
 ## Revisions
 
-*(none)*
+- **2026-10-07, «#15» — planning gap.** §7.2 named `internal/testdata` as the helper's home. The go
+  tool ignores every directory named `testdata` when expanding `./...`, so a helper there would never
+  be vetted or tested by the gate (measured: its tests were absent from the full run). The existing
+  package was also dead — nothing imported it. The helper lives in `internal/kbtest`; `internal/testdata`
+  is deleted. `internal/filter/testdata/` (§2, §9) is unaffected: it holds data, not a package.
+- **2026-10-07, between «#14» and «#15».** Nine files had drifted from `gofmt`; reformatted in a
+  whitespace-only commit (`fac34df`).
 
 ## Tasks — section ↔ task cross-reference
 
