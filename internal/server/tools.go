@@ -19,7 +19,7 @@ func GetToolDefinitions() []Tool {
 Fetch P2 Knowledge Base content using natural language or exact key.
 Accepts natural language queries like "mov instruction", "cog architecture", "spin2 pinwrite".
 Also accepts exact keys like "p2kbPasm2Mov" for direct lookup.
-Returns the content along with related items for exploration.
+Returns the content; related keys, when any, are listed inside it.
 If query is ambiguous, returns matching suggestions.`,
 			InputSchema: map[string]interface{}{
 				"type": "object",

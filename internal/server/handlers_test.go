@@ -6,77 +6,79 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
 )
 
 // Test helper functions
 
-func TestExtractRelatedInstructions(t *testing.T) {
-	tests := []struct {
-		name     string
-		content  string
-		expected []string
-	}{
-		{
-			name:     "empty content",
-			content:  "",
-			expected: nil,
-		},
-		{
-			name:     "no related instructions",
-			content:  "mnemonic: MOV\ndescription: test\n",
-			expected: nil,
-		},
-		{
-			name: "single related instruction",
-			content: `mnemonic: MOV
-related_instructions:
-  - p2kbPasm2Add
-description: test
-`,
-			expected: []string{"p2kbPasm2Add"},
-		},
-		{
-			name: "multiple related instructions",
-			content: `mnemonic: MOV
+// movBody is a content file that lists related instructions and carries
+// provenance the built-in rule removes.
+const movBody = `# maintainer note
+mnemonic: MOV
 related_instructions:
   - p2kbPasm2Add
   - p2kbPasm2Sub
-  - p2kbPasm2Loc
-description: test
-`,
-			expected: []string{"p2kbPasm2Add", "p2kbPasm2Sub", "p2kbPasm2Loc"},
-		},
-		{
-			name: "related instructions at end",
-			content: `mnemonic: MOV
-description: test
-related_instructions:
-  - p2kbPasm2Add
-  - p2kbPasm2Sub
-`,
-			expected: []string{"p2kbPasm2Add", "p2kbPasm2Sub"},
-		},
+source: manual p.12
+description: Move data
+`
+
+// serveMov makes r serve movBody as p2kbPasm2Mov, reachable by alias "MOV".
+func serveMov(r *kbtest.Remote) {
+	r.AddFile("p2kbPasm2Mov", "deliverables/ai/P2/pasm2/mov.yaml", 1700000000, movBody)
+	idx := r.Index()
+	idx.Aliases = map[string][]string{"MOV": {"p2kbPasm2Mov"}}
+	idx.Categories = map[string][]string{"pasm2_data": {"p2kbPasm2Mov"}}
+	r.SetIndex(idx)
+}
+
+func TestGetResultCarriesNoRelatedField(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveMov(r)
+
+	resp := srv.contentResponse(1, "p2kbPasm2Mov", "")
+	if resp.Error != nil {
+		t.Fatalf("contentResponse: %v", resp.Error)
 	}
+	got := extractResultMap(t, resp)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := extractRelatedInstructions(tt.content)
+	keys := make([]string, 0, len(got))
+	for k := range got {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if want := []string{"categories", "content", "key", "type"}; !reflect.DeepEqual(keys, want) {
+		t.Errorf("result fields = %v, want %v", keys, want)
+	}
+	if _, ok := got["related"]; ok {
+		t.Error("p2kb_get result still carries `related`")
+	}
+	// The related keys are still delivered, inside the content.
+	want := filter.Apply(filter.BuiltinRule, movBody)
+	if got["content"] != want {
+		t.Errorf("content =\n%q\nwant\n%q", got["content"], want)
+	}
+}
 
-			if len(result) != len(tt.expected) {
-				t.Errorf("got %d items, want %d", len(result), len(tt.expected))
-				return
-			}
+func TestGetByAliasSetsResolvedFrom(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveMov(r)
 
-			for i, v := range result {
-				if v != tt.expected[i] {
-					t.Errorf("item %d = %q, want %q", i, v, tt.expected[i])
-				}
-			}
-		})
+	resp := srv.handleGet(1, json.RawMessage(`{"query":"MOV"}`))
+	if resp.Error != nil {
+		t.Fatalf("handleGet: %v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["resolved_from"] != "MOV" || got["key"] != "p2kbPasm2Mov" {
+		t.Errorf("resolved_from = %v, key = %v; want MOV, p2kbPasm2Mov", got["resolved_from"], got["key"])
+	}
+	if _, ok := got["related"]; ok {
+		t.Error("alias lookup result carries `related`")
 	}
 }
 
@@ -187,6 +189,95 @@ func TestErrorResponse(t *testing.T) {
 }
 
 // Test p2kb_version
+
+// versionResult calls handleVersion and returns its decoded result.
+func versionResult(t *testing.T, srv *Server) map[string]interface{} {
+	t.Helper()
+	resp := srv.handleVersion(1)
+	if resp.Error != nil {
+		t.Fatalf("handleVersion: %v", resp.Error)
+	}
+	return extractResultMap(t, resp)
+}
+
+func TestVersionReportsBuiltinRule(t *testing.T) {
+	srv, _ := newTestServer(t)
+	got := versionResult(t, srv)
+	if got["filter_rule_id"] != "b431af2a9f515c11fe5fd982642c636c6f8843bf89ed2c3003ee0e28c04877ee" {
+		t.Errorf("filter_rule_id = %v", got["filter_rule_id"])
+	}
+	if got["filter_rule_source"] != "built-in" {
+		t.Errorf("filter_rule_source = %v, want built-in", got["filter_rule_source"])
+	}
+	if got["filter_engine_version"] != "1" {
+		t.Errorf("filter_engine_version = %v, want 1", got["filter_engine_version"])
+	}
+	if _, ok := got["filter_rule_refused"]; ok {
+		t.Error("filter_rule_refused present without a refused block")
+	}
+}
+
+func TestVersionReportsIndexRule(t *testing.T) {
+	srv, r := newTestServer(t)
+	idx := r.Index()
+	idx.DeliveryFilter = json.RawMessage(testRuleBlock)
+	r.SetIndex(idx)
+	if err := srv.indexManager.EnsureIndex(); err != nil {
+		t.Fatalf("EnsureIndex: %v", err)
+	}
+	rule, _ := filter.ParseRule(json.RawMessage(testRuleBlock))
+
+	got := versionResult(t, srv)
+	if got["filter_rule_id"] != rule.RuleID() || got["filter_rule_source"] != "index" {
+		t.Errorf("filter_rule_id, source = %v, %v; want %s, index", got["filter_rule_id"], got["filter_rule_source"], rule.RuleID())
+	}
+	if _, ok := got["filter_rule_refused"]; ok {
+		t.Error("filter_rule_refused present for an accepted block")
+	}
+}
+
+func TestVersionReportsLastGoodRule(t *testing.T) {
+	srv, _ := newTestServer(t, func(cacheDir string) {
+		dir := filepath.Join(cacheDir, "index")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "delivery-filter.json"), []byte(testRuleBlock), 0644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	rule, _ := filter.ParseRule(json.RawMessage(testRuleBlock))
+
+	got := versionResult(t, srv)
+	if got["filter_rule_id"] != rule.RuleID() || got["filter_rule_source"] != "last-good" {
+		t.Errorf("filter_rule_id, source = %v, %v; want %s, last-good", got["filter_rule_id"], got["filter_rule_source"], rule.RuleID())
+	}
+}
+
+func TestVersionReportsRefusedBlock(t *testing.T) {
+	srv, r := newTestServer(t)
+	idx := r.Index()
+	idx.DeliveryFilter = json.RawMessage(`{"format":2,"remove_fields":["source"],"remove_column0_comments":true}`)
+	r.SetIndex(idx)
+	if err := srv.indexManager.EnsureIndex(); err != nil {
+		t.Fatalf("EnsureIndex: %v", err)
+	}
+
+	got := versionResult(t, srv)
+	refused, ok := got["filter_rule_refused"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("filter_rule_refused = %v, want an object", got["filter_rule_refused"])
+	}
+	if refused["format"] != float64(2) {
+		t.Errorf("filter_rule_refused.format = %v, want 2", refused["format"])
+	}
+	if reason, _ := refused["reason"].(string); reason == "" {
+		t.Error("filter_rule_refused.reason is empty")
+	}
+	if got["filter_rule_source"] != "built-in" {
+		t.Errorf("filter_rule_source = %v, want built-in (refused block, no last-good)", got["filter_rule_source"])
+	}
+}
 
 func TestHandleVersion(t *testing.T) {
 	srv, _ := newTestServer(t)
@@ -922,7 +1013,7 @@ func TestGetContentVerificationFailureMapsTo32001(t *testing.T) {
 	}})
 	r.Put("verify/me.yaml", served) // never matches the index sha256
 
-	resp := srv.getContentWithRelated(1, "p2kbVerifyMe", "")
+	resp := srv.contentResponse(1, "p2kbVerifyMe", "")
 	if resp.Error == nil {
 		t.Fatal("expected an error for sha256 mismatch, got success")
 	}
@@ -952,7 +1043,7 @@ func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
 		"p2kbPlainFail": {Path: "plain/fail.yaml", Mtime: 1700000000},
 	}})
 
-	resp := srv.getContentWithRelated(1, "p2kbPlainFail", "")
+	resp := srv.contentResponse(1, "p2kbPlainFail", "")
 	if resp.Error == nil {
 		t.Fatal("expected an error for HTTP 404, got success")
 	}

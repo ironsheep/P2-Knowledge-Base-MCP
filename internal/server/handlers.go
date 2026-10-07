@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ironsheep/p2kb-mcp/internal/cache"
+	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/logging"
 )
 
@@ -61,7 +62,7 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 	// Try exact key or alias match first
 	resolution := s.indexManager.ResolveKey(params.Query)
 	if resolution.Found {
-		return s.getContentWithRelated(id, resolution.CanonicalKey, resolution.ResolvedFrom)
+		return s.contentResponse(id, resolution.CanonicalKey, resolution.ResolvedFrom)
 	}
 
 	// Use natural language matching
@@ -91,12 +92,12 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 
 	// If single high-confidence match, return content
 	if len(matches) == 1 || matches[0].Score > 0.9 {
-		return s.getContentWithRelated(id, matches[0].Key, "")
+		return s.contentResponse(id, matches[0].Key, "")
 	}
 
 	// If top match is significantly better, return it
 	if len(matches) >= 2 && matches[0].Score > matches[1].Score+0.2 {
-		return s.getContentWithRelated(id, matches[0].Key, "")
+		return s.contentResponse(id, matches[0].Key, "")
 	}
 
 	// Multiple matches - return suggestions
@@ -117,9 +118,9 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 	})
 }
 
-// getContentWithRelated fetches content and extracts related items.
+// contentResponse fetches the content for key and returns the p2kb_get result.
 // If resolvedFrom is non-empty, it indicates the original alias that was resolved.
-func (s *Server) getContentWithRelated(id interface{}, key string, resolvedFrom string) *MCPResponse {
+func (s *Server) contentResponse(id interface{}, key string, resolvedFrom string) *MCPResponse {
 	content, err := s.getContent(key)
 	if err != nil {
 		// A verification failure is distinct from not-found / network errors:
@@ -149,8 +150,6 @@ func (s *Server) getContentWithRelated(id interface{}, key string, resolvedFrom 
 			})
 	}
 
-	// Extract related instructions
-	related := extractRelatedInstructions(content)
 	categories := s.indexManager.GetKeyCategories(key)
 
 	result := map[string]interface{}{
@@ -163,10 +162,6 @@ func (s *Server) getContentWithRelated(id interface{}, key string, resolvedFrom 
 	// Include resolution metadata if an alias was used
 	if resolvedFrom != "" {
 		result["resolved_from"] = resolvedFrom
-	}
-
-	if len(related) > 0 {
-		result["related"] = related
 	}
 
 	return s.successResponse(id, result)
@@ -528,10 +523,16 @@ func (s *Server) handleVersion(id interface{}) *MCPResponse {
 	stats := s.indexManager.GetStats()
 	indexStatus := s.indexManager.GetIndexStatus()
 	obexMem, obexDisk, obexStale := s.obexManager.GetCacheStats()
+	filterStatus := s.indexManager.FilterStatus()
 
-	return s.successResponse(id, map[string]interface{}{
+	result := map[string]interface{}{
 		"mcp_version":   s.version,
 		"index_version": stats.Version,
+		// Delivery-filter diagnostics; the names are the agreement's (§7),
+		// read by the KB's acceptance probe.
+		"filter_rule_id":        filterStatus.RuleID,
+		"filter_rule_source":    filterStatus.Source,
+		"filter_engine_version": filter.EngineVersion,
 		"index": map[string]interface{}{
 			"total_entries":    stats.TotalEntries,
 			"total_categories": stats.TotalCategories,
@@ -546,7 +547,14 @@ func (s *Server) handleVersion(id interface{}) *MCPResponse {
 			"cached_disk":         obexDisk,
 			"stale_cache_entries": obexStale,
 		},
-	})
+	}
+	if refused := filterStatus.Refused; refused != nil {
+		result["filter_rule_refused"] = map[string]interface{}{
+			"format": refused.Format,
+			"reason": refused.Reason,
+		}
+	}
+	return s.successResponse(id, result)
 }
 
 // handleRefresh implements p2kb_refresh - smart cache refresh.
@@ -661,35 +669,6 @@ func (s *Server) errorResponse(id interface{}, code int, message string, data in
 func toJSON(v interface{}) string {
 	b, _ := json.MarshalIndent(v, "", "  ")
 	return string(b)
-}
-
-// extractRelatedInstructions parses the related_instructions field from YAML content.
-func extractRelatedInstructions(content string) []string {
-	var related []string
-	lines := strings.Split(content, "\n")
-	inRelated := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "related_instructions:") {
-			inRelated = true
-			continue
-		}
-		if inRelated {
-			if strings.HasPrefix(trimmed, "- ") {
-				key := strings.TrimPrefix(trimmed, "- ")
-				key = strings.TrimSpace(key)
-				if key != "" {
-					related = append(related, key)
-				}
-			} else if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
-				// End of related_instructions block
-				break
-			}
-		}
-	}
-
-	return related
 }
 
 // isNumericID checks if the query is a numeric object ID.
