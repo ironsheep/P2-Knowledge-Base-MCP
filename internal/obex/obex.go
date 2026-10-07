@@ -115,7 +115,7 @@ type DownloadResult struct {
 // Manager handles OBEX operations.
 type Manager struct {
 	mu               sync.RWMutex
-	fetchMu          sync.Mutex             // Prevents concurrent index fetches, separate from data lock
+	fetchMu          sync.Mutex // Prevents concurrent index fetches, separate from data lock
 	cacheDir         string
 	objectIDs        []string               // List of all object IDs
 	objects          map[string]*OBEXObject // Cached objects by ID

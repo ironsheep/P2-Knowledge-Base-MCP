@@ -780,11 +780,11 @@ func makeMinimalGzippedIndex(t *testing.T) []byte {
 	t.Helper()
 	idx := map[string]interface{}{
 		"system": map[string]interface{}{
-			"version":           "test-1.0",
-			"generated":         "2024-01-01T00:00:00Z",
-			"total_entries":     0,
-			"total_categories":  0,
-			"total_aliases":     0,
+			"version":          "test-1.0",
+			"generated":        "2024-01-01T00:00:00Z",
+			"total_entries":    0,
+			"total_categories": 0,
+			"total_aliases":    0,
 		},
 		"categories": map[string]interface{}{},
 		"files":      map[string]interface{}{},

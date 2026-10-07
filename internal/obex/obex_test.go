@@ -32,11 +32,11 @@ func TestNormalizeObjectID(t *testing.T) {
 		{"2811", "2811"},
 		{"OB2811", "2811"},
 		{"ob2811", "2811"},
-		{"Ob2811", "2811"},     // Mixed case - first letter uppercase
-		{"oB2811", "2811"},     // Mixed case - second letter uppercase
+		{"Ob2811", "2811"}, // Mixed case - first letter uppercase
+		{"oB2811", "2811"}, // Mixed case - second letter uppercase
 		{" 2811 ", "2811"},
-		{"OB 2811", "2811"},    // Space after OB prefix (trimmed from result)
-		{" OB2811 ", "2811"},   // Spaces around the whole thing
+		{"OB 2811", "2811"},  // Space after OB prefix (trimmed from result)
+		{" OB2811 ", "2811"}, // Spaces around the whole thing
 	}
 
 	for _, tt := range tests {

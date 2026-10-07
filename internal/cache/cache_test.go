@@ -427,7 +427,7 @@ func TestGetOrFetchRefetchesOnNewerIndex(t *testing.T) {
 	if got := atomic.LoadInt32(hits); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (newer index must refetch)", got)
 	}
-	if want := filter.Apply(filter.BuiltinRule,"fresh remote content"); content != want {
+	if want := filter.Apply(filter.BuiltinRule, "fresh remote content"); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
 }
@@ -454,7 +454,7 @@ func TestGetOrFetchRefetchesWhenDiskFileDeleted(t *testing.T) {
 	if got := atomic.LoadInt32(hits); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (deleted disk file must force refetch)", got)
 	}
-	if want := filter.Apply(filter.BuiltinRule,"remote after delete"); content != want {
+	if want := filter.Apply(filter.BuiltinRule, "remote after delete"); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
 }
@@ -537,7 +537,7 @@ func TestGetOrFetchVerifiedMatchCachesAndServes(t *testing.T) {
 	if got := atomic.LoadInt32(hits); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (verified match should not retry)", got)
 	}
-	if want := filter.Apply(filter.BuiltinRule,body); content != want {
+	if want := filter.Apply(filter.BuiltinRule, body); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
 	// Cached to memory and disk.
@@ -613,7 +613,7 @@ func TestGetOrFetchVerifiedBustRecovers(t *testing.T) {
 	if got := atomic.LoadInt32(hits); got != 2 {
 		t.Errorf("remote fetches = %d, want 2 (one stale, one busted recovery)", got)
 	}
-	if want := filter.Apply(filter.BuiltinRule,good); content != want {
+	if want := filter.Apply(filter.BuiltinRule, good); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
 	if !m.diskFileExists(key) {
@@ -664,7 +664,7 @@ func TestGetOrFetchEmptySHASkipsVerification(t *testing.T) {
 	if got := atomic.LoadInt32(hits); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (legacy path: single non-busted fetch)", got)
 	}
-	if want := filter.Apply(filter.BuiltinRule,"unverified legacy content"); content != want {
+	if want := filter.Apply(filter.BuiltinRule, "unverified legacy content"); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
 }

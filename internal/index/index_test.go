@@ -74,11 +74,11 @@ func TestManagerSearch(t *testing.T) {
 		limit    int
 		expected int
 	}{
-		{"mov", 0, 2},    // p2kbPasm2Mov, p2kbPasm2Movbyts
-		{"pasm2", 0, 3},  // All pasm2 keys
-		{"xyz", 0, 0},    // No matches
-		{"mov", 1, 1},    // Limited to 1
-		{"", 0, 0},       // Empty term
+		{"mov", 0, 2},   // p2kbPasm2Mov, p2kbPasm2Movbyts
+		{"pasm2", 0, 3}, // All pasm2 keys
+		{"xyz", 0, 0},   // No matches
+		{"mov", 1, 1},   // Limited to 1
+		{"", 0, 0},      // Empty term
 	}
 
 	for _, tt := range tests {
@@ -997,11 +997,11 @@ func TestResolveKeyCaseInsensitiveCanonical(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"p2kbPasm2Mov", "p2kbPasm2Mov"},     // Exact case
-		{"P2KBPASM2MOV", "p2kbPasm2Mov"},     // All uppercase
-		{"p2kbpasm2mov", "p2kbPasm2Mov"},     // All lowercase
-		{"P2kbPasm2Mov", "p2kbPasm2Mov"},     // Mixed case
-		{"p2kbPASM2mov", "p2kbPasm2Mov"},     // Another mixed case
+		{"p2kbPasm2Mov", "p2kbPasm2Mov"}, // Exact case
+		{"P2KBPASM2MOV", "p2kbPasm2Mov"}, // All uppercase
+		{"p2kbpasm2mov", "p2kbPasm2Mov"}, // All lowercase
+		{"P2kbPasm2Mov", "p2kbPasm2Mov"}, // Mixed case
+		{"p2kbPASM2mov", "p2kbPasm2Mov"}, // Another mixed case
 	}
 
 	for _, tt := range tests {
@@ -1039,11 +1039,11 @@ func TestGetCategoryKeysCaseInsensitive(t *testing.T) {
 		category string
 		wantLen  int
 	}{
-		{"pasm2_data", 1},      // Exact case
-		{"PASM2_DATA", 1},      // All uppercase
-		{"Pasm2_Data", 1},      // Mixed case
-		{"PASM2_MATH", 1},      // Another category
-		{"nonexistent", 0},     // Should fail
+		{"pasm2_data", 1},  // Exact case
+		{"PASM2_DATA", 1},  // All uppercase
+		{"Pasm2_Data", 1},  // Mixed case
+		{"PASM2_MATH", 1},  // Another category
+		{"nonexistent", 0}, // Should fail
 	}
 
 	for _, tt := range tests {
@@ -1410,8 +1410,8 @@ func TestEnsureIndexTTLWindow(t *testing.T) {
 	// Point indexPath/metaPath at a directory that has no cache files so that
 	// loadFromCache returns false and the fetch path is actually exercised.
 	tmpDir := t.TempDir()
-	indexPath := filepath.Join(tmpDir, "p2kb-index.json")  // does not exist
-	metaPath := filepath.Join(tmpDir, "p2kb-index.meta")   // does not exist
+	indexPath := filepath.Join(tmpDir, "p2kb-index.json") // does not exist
+	metaPath := filepath.Join(tmpDir, "p2kb-index.meta")  // does not exist
 
 	// --- sub-test: fresh index must NOT trigger a fetch ---
 	m := &Manager{
@@ -1455,7 +1455,7 @@ func TestEnsureIndexLazyFetchIsNonBusted(t *testing.T) {
 	lastReq, _ := stubIndexServer(t)
 	tmpDir := t.TempDir()
 	m := &Manager{
-		index:       nil,                              // force past the fast path
+		index:       nil,                               // force past the fast path
 		lastRefresh: time.Now().Add(-10 * time.Minute), // expired
 		ttl:         DefaultIndexTTL,
 		indexPath:   filepath.Join(tmpDir, "p2kb-index.json"), // absent -> loadFromCache false

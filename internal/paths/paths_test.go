@@ -112,10 +112,10 @@ func TestIsContainerToolsInstall(t *testing.T) {
 // TestCacheDirForExe verifies the pure layout helper covering the main install patterns.
 func TestCacheDirForExe(t *testing.T) {
 	tests := []struct {
-		name      string
-		exePath   string
-		wantDir   string
-		wantCt    bool // for documentation — cacheDirForExe uses isContainerToolsInstall internally
+		name    string
+		exePath string
+		wantDir string
+		wantCt  bool // for documentation — cacheDirForExe uses isContainerToolsInstall internally
 	}{
 		{
 			name:    "container-tools: versioned binary under bin/platforms",
@@ -167,8 +167,8 @@ func TestCacheDirForExe(t *testing.T) {
 // TestFindInstallRoot validates the walk-up-to-bin helper in isolation.
 func TestFindInstallRoot(t *testing.T) {
 	tests := []struct {
-		name    string
-		exeDir  string
+		name     string
+		exeDir   string
 		wantRoot string
 	}{
 		{

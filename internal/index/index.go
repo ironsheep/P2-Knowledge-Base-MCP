@@ -34,10 +34,10 @@ const (
 
 // Index represents the P2KB index structure.
 type Index struct {
-	System     SystemInfo            `json:"system"`
-	Categories map[string][]string   `json:"categories"`
-	Files      map[string]FileEntry  `json:"files"`
-	Aliases    map[string][]string   `json:"aliases"` // alias -> []canonical keys (first wins)
+	System     SystemInfo           `json:"system"`
+	Categories map[string][]string  `json:"categories"`
+	Files      map[string]FileEntry `json:"files"`
+	Aliases    map[string][]string  `json:"aliases"` // alias -> []canonical keys (first wins)
 }
 
 // SystemInfo contains metadata about the index.
@@ -906,7 +906,6 @@ func (m *Manager) saveToCache(data []byte) error {
 
 	return os.WriteFile(m.indexPath, data, 0644)
 }
-
 
 // getIndexTTL returns the index TTL from environment or default.
 func getIndexTTL() time.Duration {

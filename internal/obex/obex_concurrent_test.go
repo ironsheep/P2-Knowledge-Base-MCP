@@ -10,10 +10,10 @@ import (
 // This tests that multiple goroutines can safely call EnsureIndex concurrently.
 func TestConcurrentEnsureIndex(t *testing.T) {
 	m := &Manager{
-		cacheDir:   t.TempDir(),
-		objects:    make(map[string]*OBEXObject),
-		objectIDs:  []string{"1234", "5678", "9012"},
-		ttl:        1 * time.Hour,
+		cacheDir:    t.TempDir(),
+		objects:     make(map[string]*OBEXObject),
+		objectIDs:   []string{"1234", "5678", "9012"},
+		ttl:         1 * time.Hour,
 		lastRefresh: time.Now(),
 	}
 

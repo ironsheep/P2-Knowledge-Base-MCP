@@ -302,9 +302,9 @@ func (m *Manager) saveToDisk(key, content string, mtime int64) error {
 
 // CacheStats contains statistics about the cache.
 type CacheStats struct {
-	MemoryEntries int   `json:"memory_entries"`
-	DiskEntries   int   `json:"disk_entries"`
-	DiskSizeBytes int64 `json:"disk_size_bytes"`
+	MemoryEntries int    `json:"memory_entries"`
+	DiskEntries   int    `json:"disk_entries"`
+	DiskSizeBytes int64  `json:"disk_size_bytes"`
 	CacheDir      string `json:"cache_dir"`
 }
 
@@ -419,4 +419,3 @@ func (m *Manager) InvalidateKeys(keys []string) int {
 	}
 	return count
 }
-
