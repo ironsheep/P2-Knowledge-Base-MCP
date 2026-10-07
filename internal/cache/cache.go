@@ -168,7 +168,7 @@ func (m *Manager) fetchAndStore(key, path, expectedSHA256 string, indexMtime int
 // filterAndCache filters fetched content and stores it in memory and on disk,
 // stamped with indexMtime. Shared by the verified and legacy fetch paths.
 func (m *Manager) filterAndCache(key, rawContent string, indexMtime int64) string {
-	filtered := filter.FilterMetadata(rawContent)
+	filtered := filter.Apply(filter.BuiltinRule, rawContent)
 
 	m.mu.Lock()
 	m.memory[key] = cacheEntry{content: filtered, mtime: indexMtime}
