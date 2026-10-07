@@ -1,9 +1,31 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to p2kb-mcp, newest first. Each version heading links to the full set of
+changes from the release before it.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.5.0] - 2026-10-07
+
+Knowledge Base content arrives without its internal provenance, filtered by a rule the Knowledge Base publishes.
+
+### New Features
+
+- **Delivery filter**: `p2kb_get` and the OBEX tools return content with source citations, verification records and maintainer comments removed
+- **Filter rule from the index**: the server applies the rule the Knowledge Base publishes, so a rule change reaches users with the next index, without a server update
+- `P2KB_BASE_URL`: fetch the index and content from another host, such as a local mirror
+- `p2kb_version`: `filter_rule_id`, `filter_rule_source`, `filter_engine_version` and `filter_rule_refused` report the filter rule in effect
+
+### Improvements
+
+- **OBEX tools**: the object list comes from the Knowledge Base index, so the GitHub API rate limit no longer applies; object files are verified like all other content
+- **Upgrading**: the first start after upgrading re-fetches cached content once, so content cached by earlier versions is delivered filtered
+- `p2kb_get`: results carry `type`, `key`, `content`, `categories` and, for alias lookups, `resolved_from`; related entries are named in `content`
+- `p2kb_version`: the `obex` section reports `total_objects`, `parsed_objects` and `cached_bodies`
+- `--help`: lists `P2KB_BASE_URL` and the defaults the server uses
+
+### Bug Fixes
+
+- Content downloads time out after 30 seconds rather than waiting indefinitely on a stalled connection
+- `p2kb_obex_find` overview: authors with equal object counts no longer change order between calls
 
 ## [1.4.0] - 2026-06-02
 
@@ -353,6 +375,7 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
+[1.5.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.5...v1.4.0
 [1.3.5]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.4...v1.3.5
 [1.3.4]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.3...v1.3.4
