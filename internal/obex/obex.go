@@ -1,39 +1,41 @@
 // Package obex manages OBEX (Parallax Object Exchange) metadata.
+//
+// OBEX object YAMLs are KB files listed in the main index. They are read
+// through the same path as every other KB file — the index for the list and
+// each file's sha256, the cache for the hash-checked, filtered, rule-stamped
+// body — and parsed here.
 package obex
 
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ironsheep/p2kb-mcp/internal/cache"
+	"github.com/ironsheep/p2kb-mcp/internal/index"
+	"github.com/ironsheep/p2kb-mcp/internal/logging"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	// GitHubAPIBase is the base URL for GitHub API requests.
-	GitHubAPIBase = "https://api.github.com/repos/ironsheep/P2-Knowledge-Base/contents"
-
-	// GitHubRawBase is the base URL for raw content.
-	GitHubRawBase = "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main"
-
 	// OBEXPath is the path to OBEX objects in the repository.
 	OBEXPath = "deliverables/ai/P2/community/obex/objects"
 
+	// templateFile is the object template, listed in the index but not an object.
+	templateFile = "_template.yaml"
+
 	// OBEXDownloadBase is the base URL for OBEX downloads.
 	OBEXDownloadBase = "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB"
-
-	// DefaultOBEXTTL is the default time-to-live for the OBEX index.
-	DefaultOBEXTTL = 24 * time.Hour
 
 	// ErrorRefreshCooldown is the minimum time between refresh-on-error attempts.
 	// This prevents excessive refresh attempts when objects are genuinely not found.
@@ -113,124 +115,147 @@ type DownloadResult struct {
 }
 
 // Manager handles OBEX operations.
+//
+// It holds no lock while it calls the index or cache manager.
 type Manager struct {
+	index      *index.Manager
+	cache      *cache.Manager
+	httpClient *http.Client // downloads from obex.parallax.com
+
 	mu               sync.RWMutex
-	fetchMu          sync.Mutex // Prevents concurrent index fetches, separate from data lock
-	cacheDir         string
-	objectIDs        []string               // List of all object IDs
-	objects          map[string]*OBEXObject // Cached objects by ID
-	lastRefresh      time.Time
-	ttl              time.Duration
-	httpClient       *http.Client
-	lastErrorRefresh time.Time // Tracks last refresh-on-error attempt to prevent refresh storms
+	parsed           map[string]parsedObject // by object ID
+	lastErrorRefresh time.Time               // Tracks last refresh-on-error attempt to prevent refresh storms
 }
 
-// NewManager creates a new OBEX manager.
-func NewManager() *Manager {
+// parsedObject is a parsed object and the version of its file it was parsed from.
+type parsedObject struct {
+	version string
+	obj     *OBEXObject
+}
+
+// objectFile locates an object's YAML in the main index.
+type objectFile struct {
+	key  string
+	file index.FileEntry
+}
+
+// NewManager creates a new OBEX manager reading through idx and c. It removes
+// the OBEX disk cache that servers before 1.5.0 kept, once.
+func NewManager(idx *index.Manager, c *cache.Manager) *Manager {
+	legacy := filepath.Join(paths.GetCacheDirOrDefault(), "obex")
+	if err := os.RemoveAll(legacy); err != nil {
+		logging.Warnf("p2kb-mcp: warning: failed to remove retired OBEX cache %s: %v", legacy, err)
+	}
 	return &Manager{
-		cacheDir:   paths.GetCacheDirOrDefault(),
-		objects:    make(map[string]*OBEXObject),
-		ttl:        DefaultOBEXTTL,
+		index:      idx,
+		cache:      c,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
+		parsed:     make(map[string]parsedObject),
 	}
 }
 
-// EnsureIndex ensures the OBEX object list is loaded.
-// This method is safe for concurrent access and does NOT hold locks during network I/O.
-func (m *Manager) EnsureIndex() error {
-	// Fast path: check with read lock if we have a fresh index
-	m.mu.RLock()
-	if len(m.objectIDs) > 0 && time.Since(m.lastRefresh) < m.ttl {
-		m.mu.RUnlock()
-		return nil
-	}
-	m.mu.RUnlock()
-
-	// Slow path: need to load or refresh
-	// Use fetchMu to prevent concurrent fetches (separate from data lock)
-	m.fetchMu.Lock()
-	defer m.fetchMu.Unlock()
-
-	// Double-check after acquiring fetch lock (another goroutine may have loaded it)
-	m.mu.RLock()
-	if len(m.objectIDs) > 0 && time.Since(m.lastRefresh) < m.ttl {
-		m.mu.RUnlock()
-		return nil
-	}
-	m.mu.RUnlock()
-
-	// Try to load from cache (quick file I/O, safe to hold write lock briefly)
-	m.mu.Lock()
-	if m.loadIndexFromCache() {
-		m.mu.Unlock()
-		return nil
-	}
-	m.mu.Unlock()
-
-	// Fetch from GitHub API WITHOUT holding the data lock
-	// This is the critical fix: network I/O happens outside the lock
-	objectIDs, err := m.fetchIndexData()
+// objectFiles lists the objects in the main index by object ID: every file
+// under OBEXPath except the template, its ID the file name without .yaml.
+func (m *Manager) objectFiles() (map[string]objectFile, error) {
+	files, err := m.index.FilesUnder(OBEXPath)
 	if err != nil {
-		return fmt.Errorf("OBEX index fetch failed: %w", err)
+		return nil, fmt.Errorf("OBEX index unavailable: %w", err)
 	}
-
-	// Update the index under write lock (quick operation)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Save to cache
-	m.saveIndexToCache(objectIDs)
-
-	m.objectIDs = objectIDs
-	m.lastRefresh = time.Now()
-	return nil
+	objects := make(map[string]objectFile, len(files))
+	for key, f := range files {
+		name := path.Base(f.Path)
+		if name == templateFile || !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		objects[strings.TrimSuffix(name, ".yaml")] = objectFile{key: key, file: f}
+	}
+	return objects, nil
 }
 
-// GetObjectIDs returns all OBEX object IDs.
+// GetObjectIDs returns all OBEX object IDs, sorted.
 func (m *Manager) GetObjectIDs() []string {
-	if err := m.EnsureIndex(); err != nil {
+	objects, err := m.objectFiles()
+	if err != nil {
 		return nil
 	}
+	return sortedIDs(objects)
+}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]string, len(m.objectIDs))
-	copy(result, m.objectIDs)
-	return result
+func sortedIDs(objects map[string]objectFile) []string {
+	ids := make([]string, 0, len(objects))
+	for id := range objects {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // GetObject retrieves an OBEX object by ID.
 // If object is not found and cooldown has passed, attempts one refresh before giving up.
 func (m *Manager) GetObject(objectID string) (*OBEXObject, error) {
-	if err := m.EnsureIndex(); err != nil {
-		return nil, err
-	}
-
 	// Normalize ID (remove OB prefix if present)
 	objectID = normalizeObjectID(objectID)
 
-	m.mu.RLock()
-	if obj, ok := m.objects[objectID]; ok {
-		m.mu.RUnlock()
-		return obj, nil
+	objects, err := m.objectFiles()
+	if err != nil {
+		return nil, err
 	}
-	m.mu.RUnlock()
-
-	// Check if ID exists in index
-	if !m.objectExists(objectID) {
+	of, ok := lookupObject(objects, objectID)
+	if !ok {
 		// Object not found - try refresh-on-error if cooldown has passed
 		if m.tryErrorRefresh() {
 			// Retry lookup after refresh
-			if m.objectExists(objectID) {
-				return m.fetchObject(objectID)
+			if objects, err = m.objectFiles(); err == nil {
+				of, ok = lookupObject(objects, objectID)
 			}
 		}
-		return nil, fmt.Errorf("OBEX object not found: %s", objectID)
+		if !ok {
+			return nil, fmt.Errorf("OBEX object not found: %s", objectID)
+		}
+	}
+	return m.getObject(of)
+}
+
+// lookupObject finds objectID, ignoring case.
+func lookupObject(objects map[string]objectFile, objectID string) (objectFile, bool) {
+	if of, ok := objects[objectID]; ok {
+		return of, true
+	}
+	for id, of := range objects {
+		if strings.EqualFold(id, objectID) {
+			return of, true
+		}
+	}
+	return objectFile{}, false
+}
+
+// getObject returns the parsed object for of, reading its body through the
+// cache (hash-checked, filtered under the rule in effect, stamped) and
+// parsing it again only when the file or the rule changed.
+func (m *Manager) getObject(of objectFile) (*OBEXObject, error) {
+	id := strings.TrimSuffix(path.Base(of.file.Path), ".yaml")
+	version := fmt.Sprintf("%s|%d|%s", of.file.SHA256, of.file.Mtime, cache.Stamp(m.cache.Rule()))
+
+	m.mu.RLock()
+	p, ok := m.parsed[id]
+	m.mu.RUnlock()
+	if ok && p.version == version {
+		return p.obj, nil
 	}
 
-	// Fetch from remote or cache
-	return m.fetchObject(objectID)
+	content, err := m.cache.GetOrFetch(of.key, of.file.Path, of.file.SHA256, of.file.Mtime)
+	if err != nil {
+		return nil, err
+	}
+	obj := &OBEXObject{}
+	if err := yaml.Unmarshal([]byte(content), obj); err != nil {
+		return nil, fmt.Errorf("failed to parse OBEX object %s: %w", id, err)
+	}
+
+	m.mu.Lock()
+	m.parsed[id] = parsedObject{version: version, obj: obj}
+	m.mu.Unlock()
+	return obj, nil
 }
 
 // tryErrorRefresh attempts to refresh the index if the error cooldown has passed.
@@ -246,7 +271,7 @@ func (m *Manager) tryErrorRefresh() bool {
 	}
 
 	// Attempt refresh
-	if err := m.Refresh(); err != nil {
+	if err := m.index.Refresh(); err != nil {
 		// Refresh failed, but still update timestamp to prevent retry storm
 		m.mu.Lock()
 		m.lastErrorRefresh = time.Now()
@@ -263,7 +288,8 @@ func (m *Manager) tryErrorRefresh() bool {
 
 // Search searches OBEX objects by term.
 func (m *Manager) Search(term string, category string, language string, limit int) ([]SearchResult, error) {
-	if err := m.EnsureIndex(); err != nil {
+	objects, err := m.objectFiles()
+	if err != nil {
 		return nil, err
 	}
 
@@ -279,10 +305,8 @@ func (m *Manager) Search(term string, category string, language string, limit in
 	searchTerms := expandSearchTerms(strings.ToLower(term))
 
 	var results []SearchResult
-	objectIDs := m.GetObjectIDs()
-
-	for _, objID := range objectIDs {
-		obj, err := m.GetObject(objID)
+	for _, objID := range sortedIDs(objects) {
+		obj, err := m.getObject(objects[objID])
 		if err != nil {
 			continue
 		}
@@ -328,15 +352,14 @@ func (m *Manager) Search(term string, category string, language string, limit in
 
 // GetCategories returns OBEX categories with counts.
 func (m *Manager) GetCategories() (map[string]int, error) {
-	if err := m.EnsureIndex(); err != nil {
+	objects, err := m.objectFiles()
+	if err != nil {
 		return nil, err
 	}
 
 	categories := make(map[string]int)
-	objectIDs := m.GetObjectIDs()
-
-	for _, objID := range objectIDs {
-		obj, err := m.GetObject(objID)
+	for _, objID := range sortedIDs(objects) {
+		obj, err := m.getObject(objects[objID])
 		if err != nil {
 			continue
 		}
@@ -353,15 +376,14 @@ func (m *Manager) GetCategories() (map[string]int, error) {
 
 // BrowseCategory returns objects in a category.
 func (m *Manager) BrowseCategory(category string) ([]SearchResult, error) {
-	if err := m.EnsureIndex(); err != nil {
+	objects, err := m.objectFiles()
+	if err != nil {
 		return nil, err
 	}
 
 	var results []SearchResult
-	objectIDs := m.GetObjectIDs()
-
-	for _, objID := range objectIDs {
-		obj, err := m.GetObject(objID)
+	for _, objID := range sortedIDs(objects) {
+		obj, err := m.getObject(objects[objID])
 		if err != nil {
 			continue
 		}
@@ -384,15 +406,14 @@ func (m *Manager) BrowseCategory(category string) ([]SearchResult, error) {
 
 // GetAuthors returns authors sorted by object count.
 func (m *Manager) GetAuthors() ([]AuthorStats, error) {
-	if err := m.EnsureIndex(); err != nil {
+	objects, err := m.objectFiles()
+	if err != nil {
 		return nil, err
 	}
 
 	authorCounts := make(map[string]int)
-	objectIDs := m.GetObjectIDs()
-
-	for _, objID := range objectIDs {
-		obj, err := m.GetObject(objID)
+	for _, objID := range sortedIDs(objects) {
+		obj, err := m.getObject(objects[objID])
 		if err != nil {
 			continue
 		}
@@ -413,8 +434,12 @@ func (m *Manager) GetAuthors() ([]AuthorStats, error) {
 		})
 	}
 
+	// Most objects first; ties by name, so the order never depends on map order.
 	sort.Slice(authors, func(i, j int) bool {
-		return authors[i].ObjectCount > authors[j].ObjectCount
+		if authors[i].ObjectCount != authors[j].ObjectCount {
+			return authors[i].ObjectCount > authors[j].ObjectCount
+		}
+		return authors[i].Name < authors[j].Name
 	})
 
 	return authors, nil
@@ -422,13 +447,11 @@ func (m *Manager) GetAuthors() ([]AuthorStats, error) {
 
 // GetTotalObjects returns the total number of OBEX objects.
 func (m *Manager) GetTotalObjects() int {
-	if err := m.EnsureIndex(); err != nil {
+	objects, err := m.objectFiles()
+	if err != nil {
 		return 0
 	}
-
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return len(m.objectIDs)
+	return len(objects)
 }
 
 // GetDownloadURL returns the download URL for an object.
@@ -634,91 +657,46 @@ func generateSlug(title string) string {
 	return strings.Trim(result.String(), "-")
 }
 
-// Refresh forces a refresh of the OBEX index and clears stale objects.
-// This method fetches fresh data from remote without holding locks during network I/O.
+// Refresh drops every parsed object so each is parsed again on next use. The
+// object list and bodies refresh with the main index and the content cache.
 func (m *Manager) Refresh() error {
-	// Use fetchMu to prevent concurrent fetches
-	m.fetchMu.Lock()
-	defer m.fetchMu.Unlock()
-
-	// Fetch from GitHub API WITHOUT holding the data lock
-	objectIDs, err := m.fetchIndexData()
-	if err != nil {
-		return fmt.Errorf("OBEX index refresh failed: %w", err)
-	}
-
-	// Update the index under write lock
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Clear memory cache
-	m.objects = make(map[string]*OBEXObject)
-
-	// Save to cache
-	m.saveIndexToCache(objectIDs)
-
-	m.objectIDs = objectIDs
-	m.lastRefresh = time.Now()
+	m.ClearCache()
 	return nil
 }
 
-// ClearCache clears all cached OBEX data.
-// This method releases the lock before disk I/O for better concurrency.
+// ClearCache drops every parsed object, returning how many there were.
 func (m *Manager) ClearCache() int {
-	// Clear memory cache under lock
 	m.mu.Lock()
-	count := len(m.objects)
-	m.objects = make(map[string]*OBEXObject)
-	m.objectIDs = nil
-	m.lastRefresh = time.Time{}
-	cacheDir := filepath.Join(m.cacheDir, "obex")
-	m.mu.Unlock() // Release lock BEFORE disk I/O
-
-	// Clear disk cache - no lock needed for this operation
-	_ = os.RemoveAll(cacheDir)
-
+	defer m.mu.Unlock()
+	count := len(m.parsed)
+	m.parsed = make(map[string]parsedObject)
 	return count
 }
 
-// GetCacheStats returns OBEX cache statistics.
-func (m *Manager) GetCacheStats() (memoryCount, diskCount int, staleCount int) {
+// GetCacheStats returns how many objects are parsed in memory and how many
+// object bodies the content cache holds.
+func (m *Manager) GetCacheStats() (parsedCount, cachedCount int) {
 	m.mu.RLock()
-	memoryCount = len(m.objects)
+	parsedCount = len(m.parsed)
 	m.mu.RUnlock()
 
-	objectsDir := filepath.Join(m.cacheDir, "obex", "objects")
-	entries, err := os.ReadDir(objectsDir)
-	if err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".yaml") {
-				diskCount++
-
-				// Check if stale
-				info, err := entry.Info()
-				if err == nil && time.Since(info.ModTime()) > m.ttl {
-					staleCount++
-				}
-			}
+	objects, err := m.objectFiles()
+	if err != nil {
+		return parsedCount, 0
+	}
+	keys := make(map[string]bool, len(objects))
+	for _, of := range objects {
+		keys[of.key] = true
+	}
+	for _, k := range m.cache.GetCachedKeys() {
+		if keys[k] {
+			cachedCount++
 		}
 	}
-
-	return
+	return parsedCount, cachedCount
 }
 
 // Private methods
-
-func (m *Manager) objectExists(objectID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	objectIDLower := strings.ToLower(objectID)
-	for _, id := range m.objectIDs {
-		if strings.ToLower(id) == objectIDLower {
-			return true
-		}
-	}
-	return false
-}
 
 func (m *Manager) matchObject(obj *OBEXObject, searchTerms []string) string {
 	titleLower := strings.ToLower(obj.ObjectMetadata.Title)
@@ -755,177 +733,6 @@ func (m *Manager) matchObject(obj *OBEXObject, searchTerms []string) string {
 	}
 
 	return ""
-}
-
-func (m *Manager) loadIndexFromCache() bool {
-	indexPath := filepath.Join(m.cacheDir, "obex", "index.json")
-
-	info, err := os.Stat(indexPath)
-	if err != nil {
-		return false
-	}
-
-	if time.Since(info.ModTime()) > m.ttl {
-		return false
-	}
-
-	data, err := os.ReadFile(indexPath)
-	if err != nil {
-		return false
-	}
-
-	var objectIDs []string
-	if err := json.Unmarshal(data, &objectIDs); err != nil {
-		return false
-	}
-
-	m.objectIDs = objectIDs
-	m.lastRefresh = info.ModTime()
-	return true
-}
-
-// fetchIndexData fetches the OBEX index from GitHub API and returns the object IDs.
-// This method does NOT modify any state - it only performs network I/O and parsing.
-// Caller is responsible for updating the index under appropriate locks.
-func (m *Manager) fetchIndexData() ([]string, error) {
-	url := fmt.Sprintf("%s/%s", GitHubAPIBase, OBEXPath)
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "p2kb-mcp")
-
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch OBEX index: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch OBEX index: HTTP %d", resp.StatusCode)
-	}
-
-	var entries []struct {
-		Name string `json:"name"`
-		Type string `json:"type"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
-		return nil, fmt.Errorf("failed to parse OBEX index: %w", err)
-	}
-
-	var objectIDs []string
-	for _, entry := range entries {
-		if entry.Type == "file" && strings.HasSuffix(entry.Name, ".yaml") {
-			// Skip template
-			if entry.Name == "_template.yaml" {
-				continue
-			}
-			// Extract object ID from filename
-			objectID := strings.TrimSuffix(entry.Name, ".yaml")
-			objectIDs = append(objectIDs, objectID)
-		}
-	}
-
-	sort.Strings(objectIDs)
-	return objectIDs, nil
-}
-
-func (m *Manager) saveIndexToCache(objectIDs []string) {
-	indexDir := filepath.Join(m.cacheDir, "obex")
-	if err := os.MkdirAll(indexDir, 0755); err != nil {
-		return
-	}
-
-	data, err := json.Marshal(objectIDs)
-	if err != nil {
-		return
-	}
-
-	indexPath := filepath.Join(indexDir, "index.json")
-	_ = os.WriteFile(indexPath, data, 0644)
-}
-
-func (m *Manager) fetchObject(objectID string) (*OBEXObject, error) {
-	// Try to load from disk cache first
-	obj, err := m.loadObjectFromCache(objectID)
-	if err == nil {
-		m.mu.Lock()
-		m.objects[objectID] = obj
-		m.mu.Unlock()
-		return obj, nil
-	}
-
-	// Fetch from GitHub
-	url := fmt.Sprintf("%s/%s/%s.yaml", GitHubRawBase, OBEXPath, objectID)
-
-	resp, err := m.httpClient.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch OBEX object: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("OBEX object not found: %s (HTTP %d)", objectID, resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read OBEX object: %w", err)
-	}
-
-	obj = &OBEXObject{}
-	if err := yaml.Unmarshal(data, obj); err != nil {
-		return nil, fmt.Errorf("failed to parse OBEX object: %w", err)
-	}
-
-	// Cache to memory and disk
-	m.mu.Lock()
-	m.objects[objectID] = obj
-	m.mu.Unlock()
-
-	m.saveObjectToCache(objectID, data)
-
-	return obj, nil
-}
-
-func (m *Manager) loadObjectFromCache(objectID string) (*OBEXObject, error) {
-	cachePath := filepath.Join(m.cacheDir, "obex", "objects", objectID+".yaml")
-
-	// Check file age against TTL
-	info, err := os.Stat(cachePath)
-	if err != nil {
-		return nil, err
-	}
-
-	// If file is older than TTL, treat as cache miss
-	if time.Since(info.ModTime()) > m.ttl {
-		return nil, fmt.Errorf("cache expired")
-	}
-
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		return nil, err
-	}
-
-	obj := &OBEXObject{}
-	if err := yaml.Unmarshal(data, obj); err != nil {
-		return nil, err
-	}
-
-	return obj, nil
-}
-
-func (m *Manager) saveObjectToCache(objectID string, data []byte) {
-	cacheDir := filepath.Join(m.cacheDir, "obex", "objects")
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
-		return
-	}
-
-	cachePath := filepath.Join(cacheDir, objectID+".yaml")
-	_ = os.WriteFile(cachePath, data, 0644)
 }
 
 func normalizeObjectID(objectID string) string {

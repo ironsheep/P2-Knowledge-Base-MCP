@@ -1055,19 +1055,15 @@ func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
 // TestHandleRefreshFlushClearsObexCache covers the flush + include_obex path:
 // it must clear the OBEX disk cache, not just the content cache.
 func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, r := newTestServer(t)
+	serveOBEXObject(r)
 
-	// Seed the OBEX disk cache with one object.
-	cacheDir := os.Getenv("P2KB_CACHE_DIR")
-	obexObjects := filepath.Join(cacheDir, "obex", "objects")
-	if err := os.MkdirAll(obexObjects, 0755); err != nil {
-		t.Fatalf("mkdir obex objects: %v", err)
+	// Read one object, so it is parsed and its body cached.
+	if _, err := srv.obexManager.GetObject("2811"); err != nil {
+		t.Fatalf("GetObject: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(obexObjects, "obj123.yaml"), []byte("title: thing"), 0644); err != nil {
-		t.Fatalf("write obex object: %v", err)
-	}
-	if _, disk, _ := srv.obexManager.GetCacheStats(); disk == 0 {
-		t.Fatal("pre-flush: expected seeded OBEX disk cache, got 0")
+	if parsed, cached := srv.obexManager.GetCacheStats(); parsed != 1 || cached != 1 {
+		t.Fatalf("pre-flush: %d parsed, %d cached; want 1, 1", parsed, cached)
 	}
 
 	args, _ := json.Marshal(map[string]interface{}{"flush": true, "include_obex": true})
@@ -1076,15 +1072,70 @@ func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
 		t.Fatalf("handleRefresh(flush+obex) returned error: %v", resp.Error)
 	}
 
-	if _, disk, _ := srv.obexManager.GetCacheStats(); disk != 0 {
-		t.Errorf("post-flush: OBEX disk cache not cleared, %d objects remain", disk)
+	if parsed, cached := srv.obexManager.GetCacheStats(); parsed != 0 || cached != 0 {
+		t.Errorf("post-flush: %d parsed, %d cached; want 0, 0", parsed, cached)
 	}
 	resultMap := extractResultMap(t, resp)
 	if resultMap["obex_refreshed"] != true {
 		t.Errorf("result[obex_refreshed] = %v, want true", resultMap["obex_refreshed"])
 	}
-	if _, ok := resultMap["obex_cache_entries_cleared"]; !ok {
-		t.Error("result missing obex_cache_entries_cleared on flush+obex path")
+	if resultMap["obex_cache_entries_cleared"] != float64(1) {
+		t.Errorf("result[obex_cache_entries_cleared] = %v, want 1", resultMap["obex_cache_entries_cleared"])
+	}
+}
+
+// obexObjectYAML is one OBEX object file, in the KB's shape.
+const obexObjectYAML = `object_metadata:
+  object_id: "2811"
+  title: "Park transformation"
+  author: "ManAtWork"
+  urls:
+    obex_page: "https://obex.parallax.com/obex/park-transformation/"
+  technical_details:
+    languages:
+      - SPIN2
+      - PASM2
+    file_size: "16 B"
+  functionality:
+    category: "motors"
+    description_short: "The Park or d/q-transformation"
+    tags:
+      - servo
+      - motor
+  metadata:
+    quality_score: 5
+    created_date: "2020-05-09 12:00:00"
+`
+
+// serveOBEXObject lists object 2811 in r's index and serves it.
+func serveOBEXObject(r *kbtest.Remote) {
+	r.AddFile("p2kbCommunity2811", "deliverables/ai/P2/community/obex/objects/2811.yaml", 1700000000, obexObjectYAML)
+}
+
+// TestOBEXGetResultShape pins p2kb_obex_get's result fields (captured from
+// the 1.4 server against the live KB before OBEX moved onto the main index).
+func TestOBEXGetResultShape(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveOBEXObject(r)
+
+	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"2811"}`))
+	if resp.Error != nil {
+		t.Fatalf("handleOBEXGet: %v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+
+	keys := make([]string, 0, len(got))
+	for k := range got {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	want := []string{"author", "category", "description", "download_instructions", "download_url",
+		"languages", "metadata", "obex_page", "object_id", "tags", "title", "type"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Errorf("result fields = %v, want %v", keys, want)
+	}
+	if got["type"] != "obex_object" || got["object_id"] != "2811" || got["title"] != "Park transformation" {
+		t.Errorf("result = %v", got)
 	}
 }
 

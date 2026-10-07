@@ -602,6 +602,26 @@ func (m *Manager) GetAllKeys() []string {
 	return keys
 }
 
+// FilesUnder returns the index entries whose path lies under dir, keyed by
+// index key.
+func (m *Manager) FilesUnder(dir string) (map[string]FileEntry, error) {
+	if err := m.EnsureIndex(); err != nil {
+		return nil, err
+	}
+	prefix := strings.TrimSuffix(dir, "/") + "/"
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	files := make(map[string]FileEntry)
+	for k, f := range m.index.Files {
+		if strings.HasPrefix(f.Path, prefix) {
+			files[k] = f
+		}
+	}
+	return files, nil
+}
+
 // GetFileMtime returns the modification time for a key.
 // Supports both canonical keys and aliases.
 func (m *Manager) GetFileMtime(key string) (int64, error) {

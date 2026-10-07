@@ -51,11 +51,13 @@ type MCPError struct {
 // resolved from the cached index before the first request.
 func New(version string) *Server {
 	fetcher := fetch.New()
+	idx := index.NewManager(fetcher)
+	c := cache.NewManager(fetcher)
 	s := &Server{
 		version:      version,
-		indexManager: index.NewManager(fetcher),
-		cacheManager: cache.NewManager(fetcher),
-		obexManager:  obex.NewManager(),
+		indexManager: idx,
+		cacheManager: c,
+		obexManager:  obex.NewManager(idx, c),
 	}
 	s.indexManager.OnRuleChange(s.cacheManager.SetRule)
 	s.indexManager.ResolveStartupRule()

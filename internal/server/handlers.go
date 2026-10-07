@@ -522,7 +522,7 @@ func (s *Server) handleOBEXDownload(id interface{}, args json.RawMessage) *MCPRe
 func (s *Server) handleVersion(id interface{}) *MCPResponse {
 	stats := s.indexManager.GetStats()
 	indexStatus := s.indexManager.GetIndexStatus()
-	obexMem, obexDisk, obexStale := s.obexManager.GetCacheStats()
+	obexParsed, obexCached := s.obexManager.GetCacheStats()
 	filterStatus := s.indexManager.FilterStatus()
 
 	result := map[string]interface{}{
@@ -542,10 +542,9 @@ func (s *Server) handleVersion(id interface{}) *MCPResponse {
 			"needs_refresh":    indexStatus.NeedsRefresh,
 		},
 		"obex": map[string]interface{}{
-			"total_objects":       s.obexManager.GetTotalObjects(),
-			"cached_memory":       obexMem,
-			"cached_disk":         obexDisk,
-			"stale_cache_entries": obexStale,
+			"total_objects":  s.obexManager.GetTotalObjects(),
+			"parsed_objects": obexParsed,
+			"cached_bodies":  obexCached,
 		},
 	}
 	if refused := filterStatus.Refused; refused != nil {
