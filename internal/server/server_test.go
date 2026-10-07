@@ -6,12 +6,12 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	if srv == nil {
 		t.Fatal("New() returned nil")
 	}
-	if srv.version != "1.0.0" {
-		t.Errorf("version = %q, want %q", srv.version, "1.0.0")
+	if srv.version != testVersion {
+		t.Errorf("version = %q, want %q", srv.version, testVersion)
 	}
 	if srv.indexManager == nil {
 		t.Error("indexManager is nil")
@@ -22,7 +22,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestHandleInitialize(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -68,7 +68,7 @@ func TestHandleInitialize(t *testing.T) {
 }
 
 func TestHandleInitializeProtocolNegotiation(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 
 	cases := []struct {
 		name        string
@@ -99,7 +99,7 @@ func TestHandleInitializeProtocolNegotiation(t *testing.T) {
 }
 
 func TestHandleNotificationsAreFiltered(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 
 	// Any method without an id is a notification and must not produce a response,
 	// including notifications the server doesn't recognize.
@@ -120,7 +120,7 @@ func TestHandleNotificationsAreFiltered(t *testing.T) {
 }
 
 func TestHandlePing(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      42,
@@ -140,7 +140,7 @@ func TestHandlePing(t *testing.T) {
 }
 
 func TestHandleUnknownMethod(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -160,7 +160,7 @@ func TestHandleUnknownMethod(t *testing.T) {
 }
 
 func TestHandleToolsList(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -209,7 +209,7 @@ func TestHandleToolsList(t *testing.T) {
 }
 
 func TestHandleNotificationsInitialized(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      nil,

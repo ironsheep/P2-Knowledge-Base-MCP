@@ -145,7 +145,7 @@ func TestToJSON(t *testing.T) {
 // Test response helpers
 
 func TestSuccessResponse(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	resp := srv.successResponse(42, map[string]interface{}{"test": "value"})
 
 	if resp.JSONRPC != "2.0" {
@@ -163,7 +163,7 @@ func TestSuccessResponse(t *testing.T) {
 }
 
 func TestErrorResponse(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	resp := srv.errorResponse(42, -32600, "Invalid Request", "details")
 
 	if resp.JSONRPC != "2.0" {
@@ -189,7 +189,7 @@ func TestErrorResponse(t *testing.T) {
 // Test p2kb_version
 
 func TestHandleVersion(t *testing.T) {
-	srv := New("1.2.3")
+	srv, _ := newTestServer(t)
 	resp := srv.handleVersion(1)
 
 	if resp.Error != nil {
@@ -220,8 +220,8 @@ func TestHandleVersion(t *testing.T) {
 		t.Fatalf("failed to parse text as JSON: %v", err)
 	}
 
-	if data["mcp_version"] != "1.2.3" {
-		t.Errorf("mcp_version = %v, want 1.2.3", data["mcp_version"])
+	if data["mcp_version"] != testVersion {
+		t.Errorf("mcp_version = %v, want %s", data["mcp_version"], testVersion)
 	}
 
 	// Check for index and obex sections
@@ -236,7 +236,7 @@ func TestHandleVersion(t *testing.T) {
 // Test p2kb_get
 
 func TestHandleGetMissingQuery(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_get",
 		"arguments": map[string]interface{}{},
@@ -259,7 +259,7 @@ func TestHandleGetMissingQuery(t *testing.T) {
 }
 
 func TestHandleGetInvalidArgs(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_get",
 		"arguments": "not an object",
@@ -281,7 +281,7 @@ func TestHandleGetInvalidArgs(t *testing.T) {
 // Test p2kb_find
 
 func TestHandleFindNoParams(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_find",
 		"arguments": map[string]interface{}{},
@@ -304,7 +304,7 @@ func TestHandleFindNoParams(t *testing.T) {
 }
 
 func TestHandleFindWithTerm(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_find",
 		"arguments": map[string]interface{}{
@@ -329,7 +329,7 @@ func TestHandleFindWithTerm(t *testing.T) {
 // Test p2kb_obex_get
 
 func TestHandleOBEXGetMissingQuery(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_obex_get",
 		"arguments": map[string]interface{}{},
@@ -352,7 +352,7 @@ func TestHandleOBEXGetMissingQuery(t *testing.T) {
 }
 
 func TestHandleOBEXGetWithNumericID(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_get",
 		"arguments": map[string]interface{}{
@@ -375,7 +375,7 @@ func TestHandleOBEXGetWithNumericID(t *testing.T) {
 }
 
 func TestHandleOBEXGetWithSearchTerm(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_get",
 		"arguments": map[string]interface{}{
@@ -400,7 +400,7 @@ func TestHandleOBEXGetWithSearchTerm(t *testing.T) {
 // Test p2kb_obex_find
 
 func TestHandleOBEXFindNoParams(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_obex_find",
 		"arguments": map[string]interface{}{},
@@ -421,7 +421,7 @@ func TestHandleOBEXFindNoParams(t *testing.T) {
 }
 
 func TestHandleOBEXFindWithCategory(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_find",
 		"arguments": map[string]interface{}{
@@ -443,7 +443,7 @@ func TestHandleOBEXFindWithCategory(t *testing.T) {
 }
 
 func TestHandleOBEXFindWithAuthor(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_find",
 		"arguments": map[string]interface{}{
@@ -467,7 +467,7 @@ func TestHandleOBEXFindWithAuthor(t *testing.T) {
 // Test p2kb_refresh
 
 func TestHandleRefresh(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_refresh",
 		"arguments": map[string]interface{}{},
@@ -488,7 +488,7 @@ func TestHandleRefresh(t *testing.T) {
 }
 
 func TestHandleRefreshWithOBEX(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_refresh",
 		"arguments": map[string]interface{}{
@@ -512,7 +512,7 @@ func TestHandleRefreshWithOBEX(t *testing.T) {
 // Test unknown tool
 
 func TestHandleToolsCallUnknownTool(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "unknown_tool",
 		"arguments": map[string]interface{}{},
@@ -535,7 +535,7 @@ func TestHandleToolsCallUnknownTool(t *testing.T) {
 }
 
 func TestHandleToolsCallInvalidParams(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	req := &MCPRequest{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -555,7 +555,7 @@ func TestHandleToolsCallInvalidParams(t *testing.T) {
 // Test old API tools return errors (they've been removed)
 
 func TestRemovedToolsReturnError(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	removedTools := []string{
 		"p2kb_search",
 		"p2kb_browse",
@@ -598,7 +598,7 @@ func TestRemovedToolsReturnError(t *testing.T) {
 // Test p2kb_obex_download
 
 func TestHandleOBEXDownloadMissingObjectID(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_obex_download",
 		"arguments": map[string]interface{}{},
@@ -621,7 +621,7 @@ func TestHandleOBEXDownloadMissingObjectID(t *testing.T) {
 }
 
 func TestHandleOBEXDownloadEmptyObjectID(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_download",
 		"arguments": map[string]interface{}{
@@ -646,7 +646,7 @@ func TestHandleOBEXDownloadEmptyObjectID(t *testing.T) {
 }
 
 func TestHandleOBEXDownloadInvalidArgs(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_obex_download",
 		"arguments": "not an object",
@@ -669,7 +669,7 @@ func TestHandleOBEXDownloadInvalidArgs(t *testing.T) {
 }
 
 func TestHandleOBEXDownloadWithObjectID(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_download",
 		"arguments": map[string]interface{}{
@@ -696,7 +696,7 @@ func TestHandleOBEXDownloadWithObjectID(t *testing.T) {
 }
 
 func TestHandleOBEXDownloadWithTargetDir(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_download",
 		"arguments": map[string]interface{}{
@@ -720,7 +720,7 @@ func TestHandleOBEXDownloadWithTargetDir(t *testing.T) {
 }
 
 func TestHandleOBEXDownloadWithPathTraversal(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_download",
 		"arguments": map[string]interface{}{
@@ -744,7 +744,7 @@ func TestHandleOBEXDownloadWithPathTraversal(t *testing.T) {
 }
 
 func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
-	srv := New("1.0.0")
+	srv, _ := newTestServer(t)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_download",
 		"arguments": map[string]interface{}{
@@ -770,24 +770,35 @@ func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
 	}
 }
 
-// newServerWithLocalIndex creates a server whose index and content come from a
-// local kbtest.Remote (no live network required) and whose cache dir is
-// isolated in a temp directory. The returned cleanup is a no-op kept for the
-// callers; t.Cleanup restores everything.
-func newServerWithLocalIndex(t *testing.T) (*Server, func()) {
-	t.Helper()
-	srv, _ := newServerWithRemote(t)
-	return srv, func() {}
-}
+// testVersion is the version every test server reports.
+const testVersion = "1.0.0"
 
-// newServerWithRemote creates a server over a fresh kbtest.Remote and a temp
-// cache dir, returning both so the caller can shape what the Remote serves.
-func newServerWithRemote(t *testing.T) (*Server, *kbtest.Remote) {
+// newTestServer creates the server every server test uses, isolated from the
+// developer's machine: the cache dir is a temp dir, the index and content come
+// from a fresh kbtest.Remote (returned so the test can shape what it serves),
+// and the working directory is a temp dir so downloads land there. It is the
+// only caller of New in the package's tests.
+func newTestServer(t *testing.T) (*Server, *kbtest.Remote) {
 	t.Helper()
 	r := kbtest.NewRemote(t)
 	t.Setenv(fetch.BaseURLEnv, r.URL())
 	t.Setenv("P2KB_CACHE_DIR", t.TempDir())
-	return New("1.0.0"), r
+	chdirTemp(t)
+	return New(testVersion), r
+}
+
+// chdirTemp moves the test into a temp working directory and moves it back on
+// cleanup. (testing.T.Chdir arrives in Go 1.24.)
+func chdirTemp(t *testing.T) {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
 }
 
 // seedDiskCache writes fake YAML files into the server's cache dir so
@@ -797,7 +808,7 @@ func seedDiskCache(t *testing.T) (cacheDir string, keys []string) {
 	t.Helper()
 	cacheDir = os.Getenv("P2KB_CACHE_DIR")
 	if cacheDir == "" {
-		t.Fatal("P2KB_CACHE_DIR not set; call newServerWithLocalIndex first")
+		t.Fatal("P2KB_CACHE_DIR not set; call newTestServer first")
 	}
 	subDir := filepath.Join(cacheDir, "cache")
 	if err := os.MkdirAll(subDir, 0755); err != nil {
@@ -817,8 +828,7 @@ func seedDiskCache(t *testing.T) (cacheDir string, keys []string) {
 // memory and disk cache entirely.  Index refresh is served by a local httptest
 // server so no live network is required.
 func TestHandleRefreshFlushEmptiesCache(t *testing.T) {
-	srv, cleanup := newServerWithLocalIndex(t)
-	defer cleanup()
+	srv, _ := newTestServer(t)
 
 	// Seed the disk cache with two fake entries.
 	_, seededKeys := seedDiskCache(t)
@@ -862,8 +872,7 @@ func TestHandleRefreshFlushEmptiesCache(t *testing.T) {
 // TestHandleRefreshSelectivePathUnchanged confirms that the default (flush:false)
 // selective invalidation path still runs and returns expected fields.
 func TestHandleRefreshSelectivePathUnchanged(t *testing.T) {
-	srv, cleanup := newServerWithLocalIndex(t)
-	defer cleanup()
+	srv, _ := newTestServer(t)
 
 	args, _ := json.Marshal(map[string]interface{}{})
 	resp := srv.handleRefresh(1, args)
@@ -902,7 +911,7 @@ func sha256HexT(s string) string {
 func TestGetContentVerificationFailureMapsTo32001(t *testing.T) {
 	const correct = "real: yaml content\n"
 	served := "TAMPERED: not the real content\n"
-	srv, r := newServerWithRemote(t)
+	srv, r := newTestServer(t)
 	r.SetIndex(kbtest.Index{Files: map[string]kbtest.FileEntry{
 		"p2kbVerifyMe": {Path: "verify/me.yaml", Mtime: 1700000000, SHA256: sha256HexT(correct)},
 	}})
@@ -932,7 +941,7 @@ func TestGetContentVerificationFailureMapsTo32001(t *testing.T) {
 // verification) must map to the generic -32000, NOT -32001. This guards the
 // errors.As discrimination from collapsing the two error classes.
 func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
-	srv, r := newServerWithRemote(t)
+	srv, r := newTestServer(t)
 	r.SetIndex(kbtest.Index{Files: map[string]kbtest.FileEntry{
 		// no sha256 -> legacy path, verification skipped; no body served -> 404
 		"p2kbPlainFail": {Path: "plain/fail.yaml", Mtime: 1700000000},
@@ -950,8 +959,7 @@ func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
 // TestHandleRefreshFlushClearsObexCache covers the flush + include_obex path:
 // it must clear the OBEX disk cache, not just the content cache.
 func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
-	srv, cleanup := newServerWithLocalIndex(t)
-	defer cleanup()
+	srv, _ := newTestServer(t)
 
 	// Seed the OBEX disk cache with one object.
 	cacheDir := os.Getenv("P2KB_CACHE_DIR")
