@@ -413,6 +413,22 @@ path and listed from the main index (§5), stamp file + generation counter + dis
   is deleted. `internal/filter/testdata/` (§2, §9) is unaffected: it holds data, not a package.
 - **2026-10-07, between «#14» and «#15».** Nine files had drifted from `gofmt`; reformatted in a
   whitespace-only commit (`fac34df`).
+- **2026-10-07, «#19».** `P2KB_LOG_LEVEL` unset already behaved as `warn` (no info lines) while
+  `--help` said `info`; `internal/logging` makes `warn` the explicit default, so output is unchanged,
+  and `--help` now says `warn`. The race test needed the (rule, generation) snapshot taken when a fetch
+  starts, not after it returns — otherwise a fetch held at the gate picks up the new rule anyway and
+  the test cannot fail without the guard. A second race was found and closed: a disk-tier read
+  overlapping a discard could re-hydrate a superseded body into memory.
+- **2026-10-07, «#21».** `p2kb_version`'s `obex` section changes shape: `cached_memory`,
+  `cached_disk` and `stale_cache_entries` described the retired OBEX disk cache (the last would always
+  read 0 without a TTL); they become `parsed_objects` and `cached_bodies`. `p2kb_obex_get`/`_find`/
+  `_download` results are unchanged (captured from the 1.4 server against the live KB before the change
+  and diffed after). A pre-existing defect was fixed: authors with equal counts were ordered at random.
+  `p2kbCommunity<id>` queries to `p2kb_obex_get` never resolved as IDs (they fall to search); unchanged.
+- **2026-10-07, «#22».** Pre-existing gaps closed: API.md never documented `p2kb_obex_download` or
+  `p2kb_refresh flush`; its cache-location table did not match the code; `--help` gave wrong defaults
+  for `P2KB_INDEX_TTL` (fixed in «#16») and `P2KB_CACHE_DIR`. `make test-short` and `make test-live`
+  were removed: the suite needs no network, and `test-live` matched one unrelated test by name.
 
 ## Tasks — section ↔ task cross-reference
 
