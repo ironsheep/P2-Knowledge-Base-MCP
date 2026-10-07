@@ -5,12 +5,39 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
 
 // builtinRuleID is the agreement's published rule_id for BuiltinRule (§3.1).
 const builtinRuleID = "b431af2a9f515c11fe5fd982642c636c6f8843bf89ed2c3003ee0e28c04877ee"
+
+// TestGoldenVectors checks the engine against the KB reference engine's own
+// output: testdata/ holds the certification bundle's vectors (KB commit
+// ab011682), byte for byte. Never edit them by hand; replace them from a new
+// bundle.
+func TestGoldenVectors(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"input.yaml", "expected.yaml"},
+		{"empty-input.yaml", "empty-expected.yaml"},
+	} {
+		t.Run(pair[0], func(t *testing.T) {
+			in, err := os.ReadFile(filepath.Join("testdata", pair[0]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := os.ReadFile(filepath.Join("testdata", pair[1]))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := Apply(BuiltinRule, string(in)); got != string(want) {
+				t.Errorf("Apply(BuiltinRule, %s) differs from %s\n  got  %q\n  want %q", pair[0], pair[1], got, want)
+			}
+		})
+	}
+}
 
 func TestBuiltinRuleID(t *testing.T) {
 	if got := BuiltinRule.RuleID(); got != builtinRuleID {

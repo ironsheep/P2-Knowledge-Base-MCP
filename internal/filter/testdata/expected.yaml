@@ -1,0 +1,29 @@
+
+name: "vector file"
+description: |
+  Block text stays.
+  and this line is at the SAME indent as that match, so it ends the span -- KEPT
+next_key: kept
+block:
+  fact: "kept"
+  sibling: "kept: same indent ends the span"
+top_after_list: kept
+  # Source: indented comment outside any span -- KEPT (step 2 is column 0 only)
+items:
+  - source: "list-item form -- KEPT (dash before the key)"
+  - fact: "kept"
+source_documents: "longer key name -- KEPT (exact names only)"
+sourcey: "KEPT"
+deep:
+  inner:
+    after: "kept"
+span_with_comments:
+  fact: "kept"
+  after_span: "kept: a non-comment line at the field's indent ends the span"
+tab_block:
+	sibling: "kept"
+"source": "quoted key -- KEPT (the first character is a quote, not a name)"
+source : "space before colon -- KEPT (name must be followed immediately by ':')"
+sources_x: "KEPT (exact names only)"
+REG_ARRAY: {source: "cog registers", pointer: "register"}
+end_key: "kept"
