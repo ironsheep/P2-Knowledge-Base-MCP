@@ -36,7 +36,7 @@ func main() {
 			fmt.Println("  --help, -h       Print this help message")
 			fmt.Println()
 			fmt.Println("Environment variables:")
-			fmt.Println("  P2KB_CACHE_DIR     Cache directory (default: ~/.p2kb-mcp)")
+			fmt.Println("  P2KB_CACHE_DIR     Cache directory (default: beside the installed binary)")
 			fmt.Println("  P2KB_INDEX_TTL     Index TTL in seconds (default: 300)")
 			fmt.Println("  P2KB_LOG_LEVEL     Log level: debug, info, warn, error (default: warn)")
 			fmt.Println("  P2KB_BASE_URL      KB content host (default: " + fetch.DefaultBaseURL + ")")

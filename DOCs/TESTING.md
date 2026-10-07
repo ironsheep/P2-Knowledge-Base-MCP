@@ -1,153 +1,71 @@
 # Testing and Coverage
 
-This document describes the testing strategy and coverage metrics for the P2KB MCP server.
+This document describes how the P2KB MCP server is tested and how to run the tests.
 
 ## Running Tests
 
 ```bash
-# Run all tests
+# Run all tests: the Go suite with the race detector, then the installer hygiene test
 make test
 
-# Run tests with race detection
-go test -v -race ./...
+# The Go suite alone
+CGO_ENABLED=1 go test -race ./...
 
-# Run fast tests only (no network)
-make test-short
-
-# Run tests with coverage report
+# Coverage report (coverage.out, coverage.html)
 make test-coverage
 
-# Run live GitHub integration tests
-make test-live
-```
-
-## Coverage Summary
-
-**Overall Coverage: 54.8%**
-
-| Package | Coverage | Description |
-|---------|----------|-------------|
-| `internal/filter` | 100.0% | YAML metadata filtering |
-| `internal/fetch` | 72.1% | HTTP client for GitHub raw content |
-| `internal/index` | 67.3% | KB index management and parsing |
-| `internal/cache` | 55.6% | Content caching with TTL support |
-| `internal/server` | 43.2% | MCP protocol handler and tools |
-| `cmd/p2kb-mcp` | 0.0% | Main entry point (minimal logic) |
-
-## Coverage Details by Package
-
-### internal/filter (100%)
-
-Fully tested. Handles YAML metadata filtering to reduce token usage.
-
-- `FilterMetadata()` - Remove internal tracking fields
-- `ShouldFilterLine()` - Line-level filter decisions
-- `CountFilteredLines()` - Statistics tracking
-
-### internal/fetch (72.1%)
-
-HTTP client with mock server tests.
-
-**Covered:**
-- Client creation and options
-- URL fetching with success/error cases
-- HEAD requests for existence checks
-- Base URL handling
-
-**Not covered:**
-- Gzip decompression (requires real gzipped data)
-- Network error edge cases
-
-### internal/index (67.3%)
-
-Index management with mock data tests.
-
-**Covered:**
-- Manager creation and configuration
-- Search functionality
-- Category listing and counts
-- Key existence checks
-- Cache save/load operations
-
-**Not covered:**
-- Live network fetching (tested in integration)
-- Some error recovery paths
-
-### internal/cache (55.6%)
-
-Memory and disk caching.
-
-**Covered:**
-- Memory cache operations
-- Disk save/load
-- Cache clearing and invalidation
-
-**Not covered:**
-- `FetchAndCache()` (requires network)
-- Mtime-based freshness checks
-
-### internal/server (43.2%)
-
-MCP protocol handlers.
-
-**Covered:**
-- Server initialization
-- Request routing
-- Tool definitions
-- Argument validation errors
-- Helper functions (JSON, response builders)
-
-**Not covered:**
-- Handlers requiring live index/cache (handleCategories, handleStats, etc.)
-- `Run()` stdin/stdout loop
-- `getContent()` network path
-
-### cmd/p2kb-mcp (0%)
-
-Main entry point with minimal logic - just flag parsing and server startup. Not unit tested but covered by integration testing.
-
-## Test Categories
-
-### Unit Tests (make test)
-
-Fast, isolated tests using mock data and test servers. No network required.
-
-### Integration Tests (make test-live)
-
-Tests that hit the real GitHub API. Run with:
-
-```bash
-go test -v -run "Live" ./...
-```
-
-These validate:
-- Real index fetching
-- Content retrieval
-- Cache behavior with real data
-
-### MCP Protocol Tests (make test-mcp)
-
-End-to-end protocol validation:
-
-```bash
+# Send an initialize and a tools/list request to the built binary
 make test-mcp
+
+# Installer cache/backup hygiene test (shell, no Go)
+make test-installer
 ```
 
-Sends JSON-RPC requests to the built binary and validates responses.
+## The suite needs no network
+
+No test reaches the internet. Every package that fetches serves the index and content from
+`internal/kbtest`, an in-memory stand-in for the KB's raw-content host: it serves a gzipped index
+built from a Go value, content files at their index paths, per-path sequences of bodies, per-path hit
+counts and recorded requests, and can hold a path's response until released (for race tests). The
+fetcher is pointed at it the way `P2KB_BASE_URL` points the server at any host.
+
+Server tests are built by one constructor, `newTestServer`, which also gives each test a temporary
+cache directory and working directory, so a test run never touches a developer's real cache and never
+writes into the source tree.
+
+Measured 2026-10-07: the whole suite passes with `HTTPS_PROXY`/`HTTP_PROXY` pointed at an unreachable
+proxy, and a recording proxy sees no connection attempt from any package.
+
+## Coverage
+
+Measured 2026-10-07 with `go test -coverprofile` (statements). **Total: 79.1%.**
+
+| Package | Coverage | What its tests pin |
+|---------|----------|--------------------|
+| `internal/logging` | 100.0% | Level parsing, the default level, which lines each level writes |
+| `internal/filter` | 96.7% | The format-1 delivery filter: the published `rule_id`, every refused rule block, and an engine table whose cases each fail on the pre-1.5.0 filter |
+| `internal/kbtest` | 94.3% | The test KB host itself: index round trip, 404s, hit counts, body sequences, the response gate |
+| `internal/fetch` | 90.7% | Base URL resolution, cache-busting only when asked, errors naming the URL, one debug line per request |
+| `internal/index` | 87.0% | Index loading and refresh, alias resolution, search, and the delivery-filter rule in effect (index, last-good, built-in, refused) |
+| `internal/cache` | 84.3% | The mtime- and sha256-aware cache tiers, the rule stamp and its discards, and the race guard that keeps a superseded filtering out of the cache |
+| `internal/paths` | 75.0% | Cache directory resolution for each install layout |
+| `internal/obex` | 73.2% | OBEX objects read through the main index and the cache, search, categories, authors, and download extraction |
+| `internal/server` | 66.9% | Tool routing and argument errors, `p2kb_get`, `p2kb_version`, `p2kb_refresh`, and the OBEX tool results |
+| `cmd/p2kb-mcp` | 0.0% | Entry point: flag handling and startup only |
+
+Uncovered code is mostly error paths that need a failing filesystem, and the stdin/stdout loop in
+`Server.Run`, which `make test-mcp` exercises against the built binary.
 
 ## CI Coverage Threshold
 
-The CI pipeline enforces a **50% minimum coverage** threshold. This balances:
-- Ensuring core logic is tested
-- Acknowledging that network-dependent code is harder to unit test
-- Avoiding test complexity that exceeds the value
+The CI pipeline (`make test-ci`) fails below **50%** total coverage.
 
-## Improving Coverage
+## Writing Tests
 
-To improve coverage, focus on:
-
-1. **Mock interfaces** for `indexManager` and `cacheManager` to test handlers
-2. **Table-driven tests** for additional edge cases
-3. **Error injection** for network failure scenarios
-
-Coverage is tracked in the CHANGELOG for each release.
+- Serve KB data with `kbtest.NewRemote(t)`: `AddFile` lists a file in the index with its sha256 and
+  serves it; `SetIndex` shapes the whole index, including a `delivery_filter` block; `Client()` returns
+  a fetcher pointed at it.
+- Build server tests with `newTestServer(t)`; pass a seed function to model what a previous run left in
+  the cache directory.
+- Concurrent code is tested under `-race`; a test of a race should fail when the guard it covers is
+  removed.

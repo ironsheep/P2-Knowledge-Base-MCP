@@ -4,7 +4,7 @@ This document describes all MCP tools provided by the P2KB MCP server (v1.1.0+).
 
 ## Overview
 
-P2KB MCP provides 6 tools for accessing the Propeller 2 Knowledge Base and OBEX:
+P2KB MCP provides 7 tools for accessing the Propeller 2 Knowledge Base and OBEX:
 
 | Tool | Description |
 |------|-------------|
@@ -12,6 +12,7 @@ P2KB MCP provides 6 tools for accessing the Propeller 2 Knowledge Base and OBEX:
 | `p2kb_find` | Explore and discover documentation |
 | `p2kb_obex_get` | Get OBEX object by search or ID |
 | `p2kb_obex_find` | Explore OBEX objects |
+| `p2kb_obex_download` | Download and extract an OBEX object's files |
 | `p2kb_version` | Server version and status |
 | `p2kb_refresh` | Refresh index and invalidate stale cache |
 
@@ -42,11 +43,14 @@ Fetch P2 Knowledge Base content using natural language or exact key.
 {
   "type": "content",
   "key": "p2kbPasm2Mov",
-  "content": "--- YAML content ---",
-  "categories": ["pasm2_data", "pasm2_math"],
-  "related": ["p2kbPasm2Loc", "p2kbPasm2Rdlong"]
+  "content": "instruction: MOV\nsyntax: MOV Dest, {#}Src {WC|WZ|WCZ}\n...",
+  "categories": ["pasm2_math"]
 }
 ```
+
+`content` is the KB file with its provenance removed (see [Content Filtering](#content-filtering)).
+Related keys, when the file lists them, are inside it (`related_instructions`). When the query was an
+alias, the result also carries `resolved_from` with the alias used.
 
 **Returns (multiple matches):**
 
@@ -244,14 +248,14 @@ Explore OBEX objects by category, author, or search term.
 {
   "type": "overview",
   "categories": {
-    "drivers": 49,
-    "misc": 34,
+    "drivers": 57,
+    "misc": 42,
     "display": 7
   },
-  "total_objects": 113,
+  "total_objects": 130,
   "top_authors": [
-    {"name": "Jon McPhalen", "object_count": 44},
-    {"name": "Stephen M Moraco", "object_count": 15}
+    {"name": "Jon McPhalen (jonnymac)", "object_count": 44},
+    {"name": "Stephen M Moraco", "object_count": 17}
   ]
 }
 ```
@@ -284,6 +288,45 @@ Explore OBEX objects by category, author, or search term.
 
 ---
 
+### p2kb_obex_download
+
+Download an OBEX object's zip from Parallax OBEX and extract it under the working directory.
+
+**Parameters:**
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `object_id` | string | Yes | - | Object ID, with or without the `OB` prefix |
+| `target_dir` | string | No | `./OBEX/<id>-<slug>/` | Extraction directory; must stay inside the working directory |
+
+**Returns:**
+
+```json
+{
+  "type": "download_complete",
+  "object_id": "2811",
+  "title": "Park transformation",
+  "extraction_path": "/home/user/project/OBEX/2811-park-transformation",
+  "files": ["README.md", "ParkTransformation.spin2"],
+  "file_count": 2,
+  "total_size": 5304,
+  "message": "Successfully downloaded and extracted 2 files to /home/user/project/OBEX/2811-park-transformation"
+}
+```
+
+**Example:**
+
+```json
+{
+  "name": "p2kb_obex_download",
+  "arguments": {
+    "object_id": "2811"
+  }
+}
+```
+
+---
+
 ## System Tools
 
 ### p2kb_version
@@ -296,23 +339,38 @@ Get MCP server version and status information.
 
 ```json
 {
-  "mcp_version": "0.3.0",
-  "index_version": "3.2.0",
+  "mcp_version": "1.5.0",
+  "index_version": "3.5.0",
+  "filter_rule_id": "b431af2a9f515c11fe5fd982642c636c6f8843bf89ed2c3003ee0e28c04877ee",
+  "filter_rule_source": "index",
+  "filter_engine_version": "1",
   "index": {
-    "total_entries": 970,
-    "total_categories": 47,
+    "total_entries": 1131,
+    "total_categories": 59,
+    "total_aliases": 3091,
     "is_cached": true,
-    "age_seconds": 3600,
+    "age_seconds": 0,
     "needs_refresh": false
   },
   "obex": {
-    "total_objects": 113,
-    "cached_memory": 10,
-    "cached_disk": 50,
-    "stale_cache_entries": 0
+    "total_objects": 130,
+    "parsed_objects": 0,
+    "cached_bodies": 0
   }
 }
 ```
+
+The `filter_*` fields report the delivery filter in effect (see [Content Filtering](#content-filtering)):
+
+| Field | Value |
+|-------|-------|
+| `filter_rule_id` | Identity of the rule in effect |
+| `filter_rule_source` | `index` (from the current index), `last-good` (the last rule an index carried), or `built-in` |
+| `filter_engine_version` | Version of the filter engine; with the rule id it stamps the cache |
+| `filter_rule_refused` | Present only when the index carries a rule this server cannot apply: `{"format": <int>, "reason": "<why>"}`. The server keeps filtering under the last-good or built-in rule. |
+
+`obex.parsed_objects` counts objects held parsed in memory; `obex.cached_bodies` counts object files
+held in the content cache.
 
 ---
 
@@ -324,20 +382,38 @@ Force refresh of index and invalidate stale cache entries based on index timesta
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `include_obex` | boolean | No | false | Also refresh OBEX index |
+| `include_obex` | boolean | No | false | Also drop parsed OBEX objects, so each is parsed again on next use |
+| `flush` | boolean | No | false | Wipe the whole content cache instead of only the stale entries |
 
-**Returns:**
+**Returns (default):**
 
 ```json
 {
   "refreshed": true,
-  "stale_keys_found": 5,
-  "cache_entries_invalidated": 5,
-  "index_version": "3.2.1",
-  "total_entries": 970,
-  "obex_refreshed": true
+  "flushed": false,
+  "stale_keys_found": 0,
+  "cache_entries_invalidated": 0,
+  "index_version": "3.5.0",
+  "total_entries": 1131
 }
 ```
+
+**Returns (`flush` and `include_obex`):**
+
+```json
+{
+  "refreshed": true,
+  "flushed": true,
+  "stale_keys_found": 0,
+  "cache_entries_invalidated": 1,
+  "index_version": "3.5.0",
+  "total_entries": 1131,
+  "obex_refreshed": true,
+  "obex_cache_entries_cleared": 0
+}
+```
+
+With `include_obex` and no `flush`, the result also carries `obex_refreshed`.
 
 **Example:**
 
@@ -479,18 +555,31 @@ Request:
 
 ## Caching Behavior
 
-- **Index TTL**: 24 hours (configurable via `P2KB_INDEX_TTL`)
-- **Content cache**: Persistent, invalidated based on index mtime comparison
-- **OBEX cache**: TTL-based, 24 hours per object
-- **Cache location**: Platform-specific (see below)
+- **Index**: re-checked after its TTL, 5 minutes by default (`P2KB_INDEX_TTL`); `p2kb_refresh` fetches
+  it at once, bypassing CDN caches.
+- **Content**: cached in memory and on disk. An entry is used while it is at least as new as its
+  index entry's `mtime`; each download is checked against the index entry's `sha256` before it is
+  filtered and cached.
+- **OBEX objects**: OBEX object files are KB files listed in the main index, so they are fetched,
+  checked, filtered and cached like any other content.
+- **Filter stamp**: the cache records which filter rule and engine produced it. When the rule in
+  effect changes, the cached content is discarded once and re-fetched as it is used. The first start
+  after upgrading from a server before 1.5.0 does the same.
 
 ### Cache Locations
 
-| Platform | Location |
-|----------|----------|
-| Linux | `~/.cache/p2kb-mcp/` |
-| macOS | `~/Library/Caches/p2kb-mcp/` |
-| Windows | `%LocalAppData%\p2kb-mcp\` |
+The first that applies:
+
+| Condition | Location |
+|-----------|----------|
+| `P2KB_CACHE_DIR` is set | that directory |
+| Container-tools install (binary at `<root>/bin/platforms/`) | `<root>/var/cache/p2kb-mcp/` |
+| Standalone install on Linux or macOS (binary at `<root>/bin/`) | `<root>/.cache/` |
+| Windows | `%LOCALAPPDATA%\p2kb-mcp\cache\` |
+| The chosen directory cannot be created | `~/.p2kb-mcp/`, with a warning |
+
+Inside it: `index/` holds the cached index and the last-good filter rule; `cache/` holds content and
+the filter stamp.
 
 ### Smart Cache Invalidation
 
@@ -502,13 +591,31 @@ When `p2kb_refresh` is called:
 
 ### Content Filtering
 
-The following metadata fields are removed from cached content to save tokens:
+The KB's YAML files carry provenance (where a fact came from, when it was checked) that is useful to
+the KB's maintainers and costs an AI agent tokens. The server removes it before content is cached or
+returned, by a rule the KB publishes in its index as `delivery_filter`. The rule and the filter engine
+are defined by the KB's interface specification,
+[§4 Content filtering](P2KB-MCP-SPECIFICATION.md#4-content-filtering), and the delivery-filter
+interface agreement it cites.
 
-- `last_updated`
-- `enhancement_source`
-- `documentation_source`
-- `documentation_level`
-- `manual_extraction_date`
+The rule in effect is the index's rule when the server can apply it. When the index carries no rule,
+or one this server cannot apply, the server keeps the last rule an index carried, or its built-in
+rule, so it never filters less than it last did. `p2kb_version` reports which rule is in effect and
+where it came from. A change of rule reaches the KB's users with the next index, without a server
+release.
+
+---
+
+## Configuration
+
+Environment variables:
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `P2KB_CACHE_DIR` | see [Cache Locations](#cache-locations) | Cache directory |
+| `P2KB_INDEX_TTL` | `300` | Seconds before the cached index is re-checked |
+| `P2KB_LOG_LEVEL` | `warn` | `debug`, `info`, `warn` or `error`; logs go to stderr. `info` adds tool errors; `debug` adds one line per request (URL, cache-busting, status, bytes, duration) |
+| `P2KB_BASE_URL` | `https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main` | Where the index and content are fetched from: the index at `<base>/deliverables/ai/p2kb-index.json.gz`, each file at `<base>/<path>` |
 
 ---
 
@@ -524,7 +631,7 @@ The following tools were removed and replaced:
 | `p2kb_batch_get` | Multiple `p2kb_get` calls |
 | `p2kb_info` | `p2kb_get` returns categories |
 | `p2kb_stats` | `p2kb_version` |
-| `p2kb_related` | `p2kb_get` returns related items |
+| `p2kb_related` | `p2kb_get` content lists related keys |
 | `p2kb_help` | This documentation |
 | `p2kb_cached` | `p2kb_version` shows cache stats |
 | `p2kb_index_status` | `p2kb_version` shows index status |

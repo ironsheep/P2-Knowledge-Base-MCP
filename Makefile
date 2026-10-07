@@ -1,4 +1,4 @@
-.PHONY: build test clean install all help lint dist test-short test-live test-coverage test-installer fmt vuln deps standalone container-tools packages clean-all
+.PHONY: build test clean install all help lint dist test-coverage test-installer fmt vuln deps standalone container-tools packages clean-all
 
 # Version info
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -21,9 +21,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  build            Build binary for current platform"
-	@echo "  test             Run all tests"
-	@echo "  test-short       Run fast tests only (no network)"
-	@echo "  test-live        Run live GitHub integration tests"
+	@echo "  test             Run all tests (no network needed)"
 	@echo "  test-coverage    Run tests with coverage report"
 	@echo "  lint             Run linters"
 	@echo "  clean            Remove build artifacts"
@@ -50,14 +48,6 @@ test:
 # Installer cache/backup hygiene regression test (shell; no Go)
 test-installer:
 	bash scripts/test-installer-hygiene.sh
-
-# Run fast tests only (no network)
-test-short:
-	go test -v -short ./...
-
-# Run live GitHub integration tests
-test-live:
-	go test -v -run "Live" ./...
 
 # Run tests with coverage report
 test-coverage:
