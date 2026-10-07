@@ -407,3 +407,45 @@ path and listed from the main index (§5), stamp file + generation counter + dis
 ## Revisions
 
 *(none)*
+
+## Tasks — section ↔ task cross-reference
+
+Sprint tag `deliveryfilter`. Generated 2026-10-07 by `plan-to-tasks`.
+
+| Plan § | Deliverable | Task | seq | execution |
+| ------ | ----------- | ---- | --- | --------- |
+| §7.3 (+§7.1 skip) | `.gitignore` unblocks `internal/`, ignores `tasks/`; debris deleted; Windows test runs | «#13» | 1 | inline |
+| §2 | Format-1 filter engine, verbatim | «#14» | 2 | inline |
+| §7.2 | One shared HTTP stub | «#15» | 3 | task-standard |
+| §1 | `internal/fetch` as the single fetcher; `P2KB_BASE_URL` | «#16» | 4 | task-standard, two-phase |
+| §7.1 | Server tests isolated from real cache and network | «#17» | 5 | task-standard |
+| §3 | Rule resolution on every index install + startup | «#18» | 6 | task-standard |
+| §4 | Rule-stamped cache, generation race guard, disk lock, flush, logging | «#19» | 7 | task-design, two-phase |
+| §6 | `p2kb_version` filter fields; drop `related` | «#20» | 8 | task-mechanical |
+| §5 | OBEX through the KB content path | «#21» | 9 | task-standard |
+| §8 | Docs, `--help`, tool text | «#22» | 10 | task-standard |
+| §9 | Certification against the KB bundle — release gate | «#23» | 11 | inline |
+| §10 | Release 1.5.0 | «#24» | 12 | inline |
+
+**Order rationale (rework pass).** «#13» first: every later task adds files under `internal/` the
+old ignore line would drop. «#14» before anything that filters. «#15» before its consumers
+«#16»/«#17»/«#19»/«#21». «#17» **before** «#19»: once the cache stamp exists, an unisolated test
+would discard a developer's real cache. «#18» before «#19» (the callback's producer before its
+consumer) and before «#20» (`FilterStatus`). «#21» after «#19» so OBEX lands on the stamped cache.
+«#22» after every behaviour change (docs describe finished behaviour). «#23» certifies the final tree,
+so nothing but «#24» follows it.
+
+**Green units.** Every task ends green on its own; no atomic pair. «#14» keeps the tree green by
+pointing the sole caller at `BuiltinRule` until «#18»/«#19» wire the rule in effect. «#17» completes
+index/content isolation; OBEX tests stay network-reaching until «#21», by design, and «#17»'s
+hand-back names them.
+
+**Dispatch.** `arbiter-serial` (project default, `DISPATCH_MODEL`): the tasks share `cache.go`,
+`index.go`, `server.go` and the test helper, and «#16»/«#19» are shape-foundational. Two-phase:
+«#16» (fetcher design + index path first) and «#19» (stamp + generation design first).
+
+**Blocked tasks.** «#23» waits on the KB's bundle; «#24» waits on «#23», the KB release, and Stephen.
+
+**Task-shape note.** All twelve pass gist ≤ 60, single tag, `attention:` present. `priority` is
+**not** unset: `todo_batch_create` assigned `medium` and `todo_update` cannot clear it — a tool
+limitation, harmless here since `seq` alone orders the set.
