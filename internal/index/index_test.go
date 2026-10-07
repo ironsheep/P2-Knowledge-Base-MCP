@@ -1,23 +1,20 @@
 package index
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
 func TestNewManager(t *testing.T) {
-	m := NewManager()
+	m := NewManager(kbtest.NewRemote(t).Client())
 	if m == nil {
 		t.Fatal("NewManager() returned nil")
 	}
@@ -1087,22 +1084,27 @@ func TestTryErrorRefreshCooldown(t *testing.T) {
 }
 
 func TestTryErrorRefreshCooldownExpired(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put(fetch.IndexPath) // no body: the index 404s, so the refresh fails
 	m := &Manager{
+		fetcher: r.Client(),
 		index: &Index{
 			Files: map[string]FileEntry{
 				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
 			},
 		},
-		indexPath:        "/nonexistent/path/index.json", // Ensure refresh will fail (no network in tests)
+		indexPath:        "/nonexistent/path/index.json",
 		lastRefresh:      time.Now(),
 		ttl:              DefaultIndexTTL,
 		lastErrorRefresh: time.Now().Add(-10 * time.Minute), // Old error refresh - cooldown expired
 	}
 
-	// Should attempt refresh (will fail due to no network, but that's OK)
-	// After this, lastErrorRefresh should be updated
+	// Should attempt the refresh, which fails; lastErrorRefresh is updated anyway
 	originalTime := m.lastErrorRefresh
 	_ = m.tryErrorRefresh()
+	if got := r.Hits(fetch.IndexPath); got != 1 {
+		t.Errorf("index fetches = %d, want 1 (cooldown expired, refresh attempted)", got)
+	}
 
 	// Verify cooldown timestamp was updated (whether refresh succeeded or failed)
 	if !m.lastErrorRefresh.After(originalTime) {
@@ -1111,7 +1113,10 @@ func TestTryErrorRefreshCooldownExpired(t *testing.T) {
 }
 
 func TestResolveKeyTriggersErrorRefresh(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put(fetch.IndexPath) // no body: the index 404s, so the refresh fails
 	m := &Manager{
+		fetcher: r.Client(),
 		index: &Index{
 			Files: map[string]FileEntry{
 				"p2kbPasm2Add": {Path: "pasm2/add.yaml"},
@@ -1132,9 +1137,12 @@ func TestResolveKeyTriggersErrorRefresh(t *testing.T) {
 		t.Error("Should not find nonexistent key")
 	}
 
-	// Verify that an error refresh was attempted (timestamp updated)
+	// Verify that an error refresh was attempted (timestamp updated, index requested)
 	if !m.lastErrorRefresh.After(originalTime) {
 		t.Error("ResolveKey should trigger error refresh when key not found and cooldown expired")
+	}
+	if got := r.Hits(fetch.IndexPath); got != 1 {
+		t.Errorf("index fetches = %d, want 1", got)
 	}
 }
 
@@ -1287,117 +1295,51 @@ func TestResolveKeyDoesNotTriggerRefreshInCooldown(t *testing.T) {
 	}
 }
 
-// minimalGzipIndex returns a gzip-compressed minimal valid Index JSON blob
-// suitable for serving from an httptest server so that fetchIndexData's
-// gzip.NewReader + json.Unmarshal succeed.
-func minimalGzipIndex(t *testing.T) []byte {
-	t.Helper()
-	idx := Index{
-		System:     SystemInfo{Version: "test-1.0"},
-		Categories: map[string][]string{},
-		Files:      map[string]FileEntry{},
-		Aliases:    map[string][]string{},
+// lastIndexRequest returns the most recent index request r received, or nil.
+func lastIndexRequest(r *kbtest.Remote) *http.Request {
+	reqs := r.Requests(fetch.IndexPath)
+	if len(reqs) == 0 {
+		return nil
 	}
-	raw, err := json.Marshal(idx)
-	if err != nil {
-		t.Fatalf("minimalGzipIndex: marshal: %v", err)
-	}
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	if _, err := gw.Write(raw); err != nil {
-		t.Fatalf("minimalGzipIndex: gzip write: %v", err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatalf("minimalGzipIndex: gzip close: %v", err)
-	}
-	return buf.Bytes()
+	return reqs[len(reqs)-1]
 }
 
-// stubIndexServer points IndexURL at a local httptest server that serves a
-// minimal gzip-compressed index JSON on every request.  It records the last
-// received *http.Request and counts hits.  Because IndexURL is a package-level
-// var, tests using this helper must NOT call t.Parallel.  The cleanup restores
-// IndexURL and closes the server.
-func stubIndexServer(t *testing.T) (lastReq func() *http.Request, hits func() int) {
-	t.Helper()
-	body := minimalGzipIndex(t)
-
-	var reqMu atomic.Value // stores *http.Request
-	var hitCount int32
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&hitCount, 1)
-		// Clone the request so the handler can return after the call.
-		clone := r.Clone(r.Context())
-		reqMu.Store(clone)
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(body)
-	}))
-
-	prev := IndexURL
-	IndexURL = srv.URL + "/index.json.gz"
-	t.Cleanup(func() {
-		IndexURL = prev
-		srv.Close()
+// TestFetchIndexDataRequestsIndexPath verifies the index is requested from
+// <base>/deliverables/ai/p2kb-index.json.gz and parsed into the Index.
+func TestFetchIndexDataRequestsIndexPath(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.SetIndex(kbtest.Index{
+		System: kbtest.System{Version: "3.6.0"},
+		Files:  map[string]kbtest.FileEntry{"p2kbPasm2Mov": {Path: "deliverables/ai/P2/mov.yaml", Mtime: 9}},
 	})
+	m := &Manager{fetcher: r.Client()}
 
-	lastReq = func() *http.Request {
-		v := reqMu.Load()
-		if v == nil {
-			return nil
-		}
-		return v.(*http.Request)
+	idx, _, err := m.fetchIndexData(false)
+	if err != nil {
+		t.Fatalf("fetchIndexData: %v", err)
 	}
-	hits = func() int { return int(atomic.LoadInt32(&hitCount)) }
-	return lastReq, hits
+	if got := r.Hits(fetch.IndexPath); got != 1 {
+		t.Errorf("hits on %s = %d, want 1", fetch.IndexPath, got)
+	}
+	if idx.System.Version != "3.6.0" || idx.Files["p2kbPasm2Mov"].Path != "deliverables/ai/P2/mov.yaml" {
+		t.Errorf("parsed index = %+v", idx)
+	}
 }
 
-// TestFetchIndexDataBustParam verifies that fetchIndexData(bust) controls
-// whether the request includes a cache-busting query parameter and the
-// no-cache headers.
-func TestFetchIndexDataBustParam(t *testing.T) {
-	lastReq, hits := stubIndexServer(t)
-	m := &Manager{}
+// TestFetchIndexDataErrors verifies a corrupt or missing index is an error,
+// not an empty index.
+func TestFetchIndexDataErrors(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	m := &Manager{fetcher: r.Client()}
 
-	// bust=false — no "t=" query param, no Cache-Control header
-	_, _, err := m.fetchIndexData(false)
-	if err != nil {
-		t.Fatalf("fetchIndexData(false) returned error: %v", err)
-	}
-	if hits() != 1 {
-		t.Fatalf("expected 1 hit after fetchIndexData(false), got %d", hits())
-	}
-	req := lastReq()
-	if req == nil {
-		t.Fatal("no request recorded")
-	}
-	if strings.Contains(req.URL.RawQuery, "t=") {
-		t.Errorf("fetchIndexData(false): unexpected cache-bust query param in URL: %s", req.URL.String())
-	}
-	if cc := req.Header.Get("Cache-Control"); cc != "" {
-		t.Errorf("fetchIndexData(false): unexpected Cache-Control header: %q", cc)
-	}
-	if p := req.Header.Get("Pragma"); p != "" {
-		t.Errorf("fetchIndexData(false): unexpected Pragma header: %q", p)
+	r.Put(fetch.IndexPath, "not gzip")
+	if _, _, err := m.fetchIndexData(false); err == nil {
+		t.Error("corrupt gzip: want error")
 	}
 
-	// bust=true — must have "t=" query param AND both no-cache headers
-	_, _, err = m.fetchIndexData(true)
-	if err != nil {
-		t.Fatalf("fetchIndexData(true) returned error: %v", err)
-	}
-	if hits() != 2 {
-		t.Fatalf("expected 2 hits after fetchIndexData(true), got %d", hits())
-	}
-	req = lastReq()
-	if !strings.Contains(req.URL.RawQuery, "t=") {
-		t.Errorf("fetchIndexData(true): missing cache-bust query param in URL: %s", req.URL.String())
-	}
-	if cc := req.Header.Get("Cache-Control"); !strings.Contains(cc, "no-cache") {
-		t.Errorf("fetchIndexData(true): expected no-cache in Cache-Control, got %q", cc)
-	}
-	if p := req.Header.Get("Pragma"); p != "no-cache" {
-		t.Errorf("fetchIndexData(true): expected Pragma: no-cache, got %q", p)
+	r.Put(fetch.IndexPath, string(kbtest.GzipJSON("not an index object")))
+	if _, _, err := m.fetchIndexData(false); err == nil {
+		t.Error("non-object JSON: want error")
 	}
 }
 
@@ -1405,7 +1347,8 @@ func TestFetchIndexDataBustParam(t *testing.T) {
 // when the in-memory index is fresh (within TTL), and DOES hit the network
 // once when the in-memory index has expired.
 func TestEnsureIndexTTLWindow(t *testing.T) {
-	_, hits := stubIndexServer(t)
+	r := kbtest.NewRemote(t)
+	hits := func() int { return r.Hits(fetch.IndexPath) }
 
 	// Point indexPath/metaPath at a directory that has no cache files so that
 	// loadFromCache returns false and the fetch path is actually exercised.
@@ -1415,6 +1358,7 @@ func TestEnsureIndexTTLWindow(t *testing.T) {
 
 	// --- sub-test: fresh index must NOT trigger a fetch ---
 	m := &Manager{
+		fetcher:     r.Client(),
 		index:       &Index{System: SystemInfo{Version: "cached"}, Files: map[string]FileEntry{}},
 		lastRefresh: time.Now(),
 		ttl:         DefaultIndexTTL,
@@ -1432,6 +1376,7 @@ func TestEnsureIndexTTLWindow(t *testing.T) {
 	// fetch. Using a non-nil index (not nil) ensures we exercise the TTL-expiry
 	// branch specifically, not the separate "no in-memory index" path. ---
 	m2 := &Manager{
+		fetcher:     r.Client(),
 		index:       &Index{System: SystemInfo{Version: "stale"}, Files: map[string]FileEntry{}},
 		lastRefresh: time.Now().Add(-10 * time.Minute), // older than 5min TTL
 		ttl:         DefaultIndexTTL,
@@ -1449,12 +1394,14 @@ func TestEnsureIndexTTLWindow(t *testing.T) {
 // TestEnsureIndexLazyFetchIsNonBusted locks the three-tier busting WIRING at the
 // caller level: the lazy TTL-expiry refresh (EnsureIndex) must ride the CDN edge
 // — no cache-busting query param, no no-cache headers — so it scales across
-// clients. (TestFetchIndexDataBustParam covers the function; this covers the
-// caller actually invoking it with bust=false.)
+// clients. (The fetch package covers what bust does; this covers the caller
+// actually invoking it with bust=false.)
 func TestEnsureIndexLazyFetchIsNonBusted(t *testing.T) {
-	lastReq, _ := stubIndexServer(t)
+	r := kbtest.NewRemote(t)
+	lastReq := func() *http.Request { return lastIndexRequest(r) }
 	tmpDir := t.TempDir()
 	m := &Manager{
+		fetcher:     r.Client(),
 		index:       nil,                               // force past the fast path
 		lastRefresh: time.Now().Add(-10 * time.Minute), // expired
 		ttl:         DefaultIndexTTL,
@@ -1480,9 +1427,11 @@ func TestEnsureIndexLazyFetchIsNonBusted(t *testing.T) {
 // Refresh (p2kb_refresh) must bypass the CDN — cache-busting query param AND
 // no-cache headers present.
 func TestRefreshIsBusted(t *testing.T) {
-	lastReq, _ := stubIndexServer(t)
+	r := kbtest.NewRemote(t)
+	lastReq := func() *http.Request { return lastIndexRequest(r) }
 	tmpDir := t.TempDir()
 	m := &Manager{
+		fetcher:   r.Client(),
 		ttl:       DefaultIndexTTL,
 		indexPath: filepath.Join(tmpDir, "p2kb-index.json"),
 		metaPath:  filepath.Join(tmpDir, "p2kb-index.meta"),

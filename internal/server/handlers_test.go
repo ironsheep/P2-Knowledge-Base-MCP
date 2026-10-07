@@ -1,20 +1,15 @@
 package server
 
 import (
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/ironsheep/p2kb-mcp/internal/cache"
-	"github.com/ironsheep/p2kb-mcp/internal/index"
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
 )
 
 // Test helper functions
@@ -775,68 +770,24 @@ func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
 	}
 }
 
-// makeMinimalGzippedIndex builds a minimal valid p2kb index gzip payload for tests.
-func makeMinimalGzippedIndex(t *testing.T) []byte {
-	t.Helper()
-	idx := map[string]interface{}{
-		"system": map[string]interface{}{
-			"version":          "test-1.0",
-			"generated":        "2024-01-01T00:00:00Z",
-			"total_entries":    0,
-			"total_categories": 0,
-			"total_aliases":    0,
-		},
-		"categories": map[string]interface{}{},
-		"files":      map[string]interface{}{},
-		"aliases":    map[string]interface{}{},
-	}
-	raw, err := json.Marshal(idx)
-	if err != nil {
-		t.Fatalf("marshal index: %v", err)
-	}
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(raw); err != nil {
-		t.Fatalf("gzip write: %v", err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatalf("gzip close: %v", err)
-	}
-	return buf.Bytes()
-}
-
-// newServerWithLocalIndex creates a server whose index manager points at a local
-// httptest server (no live network required) and whose cache dir is isolated in
-// a temp directory.  It returns the server and a cleanup function.
+// newServerWithLocalIndex creates a server whose index and content come from a
+// local kbtest.Remote (no live network required) and whose cache dir is
+// isolated in a temp directory. The returned cleanup is a no-op kept for the
+// callers; t.Cleanup restores everything.
 func newServerWithLocalIndex(t *testing.T) (*Server, func()) {
 	t.Helper()
+	srv, _ := newServerWithRemote(t)
+	return srv, func() {}
+}
 
-	// Build a tiny httptest server that serves the gzipped index payload.
-	payload := makeMinimalGzippedIndex(t)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(payload)
-	}))
-
-	// Redirect the package-level IndexURL var to our local server.
-	origURL := index.IndexURL
-	index.IndexURL = ts.URL
-
-	// Redirect cache to an isolated temp dir.
-	tmpDir := t.TempDir()
-	if err := os.Setenv("P2KB_CACHE_DIR", tmpDir); err != nil {
-		t.Fatalf("setenv P2KB_CACHE_DIR: %v", err)
-	}
-
-	srv := New("1.0.0")
-
-	cleanup := func() {
-		ts.Close()
-		index.IndexURL = origURL
-		os.Unsetenv("P2KB_CACHE_DIR")
-	}
-	return srv, cleanup
+// newServerWithRemote creates a server over a fresh kbtest.Remote and a temp
+// cache dir, returning both so the caller can shape what the Remote serves.
+func newServerWithRemote(t *testing.T) (*Server, *kbtest.Remote) {
+	t.Helper()
+	r := kbtest.NewRemote(t)
+	t.Setenv(fetch.BaseURLEnv, r.URL())
+	t.Setenv("P2KB_CACHE_DIR", t.TempDir())
+	return New("1.0.0"), r
 }
 
 // seedDiskCache writes fake YAML files into the server's cache dir so
@@ -944,60 +895,6 @@ func sha256HexT(s string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// newServerWithFilesAndContent builds a server whose index (served through the
-// index.IndexURL seam) carries the given file entries, and whose content fetches
-// (the cache.BaseContentURL seam) are answered by contentHandler. The cache dir
-// is isolated in a temp dir. No live network is touched.
-func newServerWithFilesAndContent(t *testing.T, files map[string]interface{}, contentHandler http.HandlerFunc) (*Server, func()) {
-	t.Helper()
-
-	idx := map[string]interface{}{
-		"system":     map[string]interface{}{"version": "test-1.0", "generated": "2024-01-01T00:00:00Z"},
-		"categories": map[string]interface{}{},
-		"files":      files,
-		"aliases":    map[string]interface{}{},
-	}
-	raw, err := json.Marshal(idx)
-	if err != nil {
-		t.Fatalf("marshal index: %v", err)
-	}
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	if _, err := gz.Write(raw); err != nil {
-		t.Fatalf("gzip write: %v", err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatalf("gzip close: %v", err)
-	}
-	payload := buf.Bytes()
-
-	idxSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write(payload)
-	}))
-	contentSrv := httptest.NewServer(contentHandler)
-
-	origIdx := index.IndexURL
-	origContent := cache.BaseContentURL
-	index.IndexURL = idxSrv.URL
-	cache.BaseContentURL = contentSrv.URL + "/"
-
-	tmpDir := t.TempDir()
-	if err := os.Setenv("P2KB_CACHE_DIR", tmpDir); err != nil {
-		t.Fatalf("setenv P2KB_CACHE_DIR: %v", err)
-	}
-
-	srv := New("1.0.0")
-	cleanup := func() {
-		idxSrv.Close()
-		contentSrv.Close()
-		index.IndexURL = origIdx
-		cache.BaseContentURL = origContent
-		os.Unsetenv("P2KB_CACHE_DIR")
-	}
-	return srv, cleanup
-}
-
 // TestGetContentVerificationFailureMapsTo32001 covers the user-facing half of the
 // hash-validation feature: when a downloaded file's sha256 never matches the
 // index, the p2kb_get path must surface the distinct -32001 "temporarily
@@ -1005,17 +902,11 @@ func newServerWithFilesAndContent(t *testing.T, files map[string]interface{}, co
 func TestGetContentVerificationFailureMapsTo32001(t *testing.T) {
 	const correct = "real: yaml content\n"
 	served := "TAMPERED: not the real content\n"
-	files := map[string]interface{}{
-		"p2kbVerifyMe": map[string]interface{}{
-			"path":   "verify/me.yaml",
-			"mtime":  1700000000,
-			"sha256": sha256HexT(correct),
-		},
-	}
-	srv, cleanup := newServerWithFilesAndContent(t, files, func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, served) // never matches the index sha256
-	})
-	defer cleanup()
+	srv, r := newServerWithRemote(t)
+	r.SetIndex(kbtest.Index{Files: map[string]kbtest.FileEntry{
+		"p2kbVerifyMe": {Path: "verify/me.yaml", Mtime: 1700000000, SHA256: sha256HexT(correct)},
+	}})
+	r.Put("verify/me.yaml", served) // never matches the index sha256
 
 	resp := srv.getContentWithRelated(1, "p2kbVerifyMe", "")
 	if resp.Error == nil {
@@ -1037,25 +928,19 @@ func TestGetContentVerificationFailureMapsTo32001(t *testing.T) {
 }
 
 // TestGetContentNetworkErrorMapsTo32000 is the distinctness half: a non-
-// verification failure (here HTTP 500 on a file with no sha256, so no
+// verification failure (here HTTP 404 on a file with no sha256, so no
 // verification) must map to the generic -32000, NOT -32001. This guards the
 // errors.As discrimination from collapsing the two error classes.
 func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
-	files := map[string]interface{}{
-		"p2kbPlainFail": map[string]interface{}{
-			"path":  "plain/fail.yaml",
-			"mtime": 1700000000,
-			// no sha256 -> legacy path, verification skipped
-		},
-	}
-	srv, cleanup := newServerWithFilesAndContent(t, files, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	})
-	defer cleanup()
+	srv, r := newServerWithRemote(t)
+	r.SetIndex(kbtest.Index{Files: map[string]kbtest.FileEntry{
+		// no sha256 -> legacy path, verification skipped; no body served -> 404
+		"p2kbPlainFail": {Path: "plain/fail.yaml", Mtime: 1700000000},
+	}})
 
 	resp := srv.getContentWithRelated(1, "p2kbPlainFail", "")
 	if resp.Error == nil {
-		t.Fatal("expected an error for HTTP 500, got success")
+		t.Fatal("expected an error for HTTP 404, got success")
 	}
 	if resp.Error.Code != -32000 {
 		t.Errorf("error code = %d, want -32000 (generic, distinct from -32001)", resp.Error.Code)

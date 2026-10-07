@@ -2,17 +2,14 @@ package cache
 
 import (
 	"errors"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
+	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
@@ -21,7 +18,7 @@ import (
 const knownMtime int64 = 1700000000
 
 func TestNewManager(t *testing.T) {
-	m := NewManager()
+	m := NewManager(kbtest.NewRemote(t).Client())
 	if m == nil {
 		t.Fatal("NewManager() returned nil")
 	}
@@ -160,7 +157,7 @@ func TestManagerSaveAndLoadFromDisk(t *testing.T) {
 }
 
 func TestCacheEntryMtime(t *testing.T) {
-	m := NewManager()
+	m := NewManager(kbtest.NewRemote(t).Client())
 
 	// Add entry with mtime
 	m.mu.Lock()
@@ -174,13 +171,6 @@ func TestCacheEntryMtime(t *testing.T) {
 
 	if entry.mtime != 1000 {
 		t.Errorf("mtime = %d, want 1000", entry.mtime)
-	}
-}
-
-func TestBaseContentURL(t *testing.T) {
-	expected := "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main/"
-	if BaseContentURL != expected {
-		t.Errorf("BaseContentURL = %q, want %q", BaseContentURL, expected)
 	}
 }
 
@@ -360,35 +350,31 @@ func TestGetMtimeDiskFallback(t *testing.T) {
 	}
 }
 
-// stubRemoteSeq points the remote tier (BaseContentURL) at a local httptest
-// server that serves bodies[i] on the i-th request (clamping to the last entry
-// for any further requests) and counts how many times it is hit. BaseContentURL
-// is a global, so tests using this helper must not call t.Parallel. The returned
-// pointer is the live hit counter; cleanup restores BaseContentURL and closes
-// the server.
-func stubRemoteSeq(t *testing.T, bodies ...string) *int32 {
+// testContentPath is the content file every remote-tier test fetches.
+const testContentPath = "deliverables/ai/P2/test.yaml"
+
+// newRemoteManager returns a Manager over a temp cache dir whose remote tier
+// is a kbtest.Remote serving bodies[i] on the i-th request for testContentPath
+// (the last body repeats).
+func newRemoteManager(t *testing.T, bodies ...string) (*Manager, *kbtest.Remote) {
 	t.Helper()
-	var hits int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		n := int(atomic.AddInt32(&hits, 1)) - 1
-		if n >= len(bodies) {
-			n = len(bodies) - 1
-		}
-		_, _ = io.WriteString(w, bodies[n])
-	}))
-	prev := BaseContentURL
-	BaseContentURL = srv.URL + "/"
-	t.Cleanup(func() {
-		BaseContentURL = prev
-		srv.Close()
-	})
-	return &hits
+	r := kbtest.NewRemote(t)
+	r.Put(testContentPath, bodies...)
+	return &Manager{fetcher: r.Client(), cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}, r
 }
 
-// stubRemote is the single-body case of stubRemoteSeq.
-func stubRemote(t *testing.T, body string) *int32 {
+// assertBusted checks which requests for testContentPath cache-busted.
+func assertBusted(t *testing.T, r *kbtest.Remote, want ...bool) {
 	t.Helper()
-	return stubRemoteSeq(t, body)
+	reqs := r.Requests(testContentPath)
+	if len(reqs) != len(want) {
+		t.Fatalf("requests = %d, want %d", len(reqs), len(want))
+	}
+	for i, req := range reqs {
+		if got := req.URL.Query().Get("t") != ""; got != want[i] {
+			t.Errorf("request %d busted = %v, want %v (%s)", i, got, want[i], req.URL)
+		}
+	}
 }
 
 // shrinkBackoff lowers the cache-busting retry backoff to keep mismatch tests
@@ -414,17 +400,16 @@ func primeCache(t *testing.T, m *Manager, key, content string, mtime int64) {
 // TestGetOrFetchRefetchesOnNewerIndex (invariant a): when the index mtime
 // advances past the cached entry, GetOrFetch must re-fetch from remote.
 func TestGetOrFetchRefetchesOnNewerIndex(t *testing.T) {
-	hits := stubRemote(t, "fresh remote content")
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "fresh remote content")
 	const key = "k"
 
 	primeCache(t, m, key, "stale content", knownMtime)
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime+100)
+	content, err := m.GetOrFetch(key, testContentPath, "", knownMtime+100)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 1 {
+	if got := r.Hits(testContentPath); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (newer index must refetch)", got)
 	}
 	if want := filter.Apply(filter.BuiltinRule, "fresh remote content"); content != want {
@@ -436,8 +421,7 @@ func TestGetOrFetchRefetchesOnNewerIndex(t *testing.T) {
 // entry must NOT be served once its backing disk file is gone — disk presence
 // is authoritative, so a deleted file forces a re-fetch.
 func TestGetOrFetchRefetchesWhenDiskFileDeleted(t *testing.T) {
-	hits := stubRemote(t, "remote after delete")
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "remote after delete")
 	const key = "k"
 
 	primeCache(t, m, key, "cached content", knownMtime)
@@ -447,11 +431,11 @@ func TestGetOrFetchRefetchesWhenDiskFileDeleted(t *testing.T) {
 		t.Fatalf("removing disk file: %v", err)
 	}
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, "", knownMtime)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 1 {
+	if got := r.Hits(testContentPath); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (deleted disk file must force refetch)", got)
 	}
 	if want := filter.Apply(filter.BuiltinRule, "remote after delete"); content != want {
@@ -462,17 +446,16 @@ func TestGetOrFetchRefetchesWhenDiskFileDeleted(t *testing.T) {
 // TestGetOrFetchServesFreshCacheWithoutNetwork (invariant c): a cache that is
 // at least as new as the index is served with zero network calls.
 func TestGetOrFetchServesFreshCacheWithoutNetwork(t *testing.T) {
-	hits := stubRemote(t, "should-not-be-fetched")
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "should-not-be-fetched")
 	const key = "k"
 
 	primeCache(t, m, key, "cached content", knownMtime)
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, "", knownMtime)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 0 {
+	if got := r.Hits(testContentPath); got != 0 {
 		t.Errorf("remote fetches = %d, want 0 (fresh cache must not hit network)", got)
 	}
 	if content != "cached content" {
@@ -484,8 +467,7 @@ func TestGetOrFetchServesFreshCacheWithoutNetwork(t *testing.T) {
 // memory map empty but a fresh disk file present, GetOrFetch serves from disk
 // (and re-hydrates memory) without touching the network.
 func TestGetOrFetchServesFreshDiskWithoutNetwork(t *testing.T) {
-	hits := stubRemote(t, "should-not-be-fetched")
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "should-not-be-fetched")
 	const key = "k"
 
 	// Disk only — memory map left empty.
@@ -493,11 +475,11 @@ func TestGetOrFetchServesFreshDiskWithoutNetwork(t *testing.T) {
 		t.Fatalf("saveToDisk failed: %v", err)
 	}
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, "", knownMtime)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 0 {
+	if got := r.Hits(testContentPath); got != 0 {
 		t.Errorf("remote fetches = %d, want 0 (fresh disk must not hit network)", got)
 	}
 	if content != "disk content" {
@@ -526,17 +508,17 @@ func TestSHA256HexFormat(t *testing.T) {
 // the index digest is fetched exactly once, then filtered, cached, and served.
 func TestGetOrFetchVerifiedMatchCachesAndServes(t *testing.T) {
 	const body = "verified content"
-	hits := stubRemote(t, body)
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, body)
 	const key = "k"
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", sha256Hex(body), knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, sha256Hex(body), knownMtime)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 1 {
+	if got := r.Hits(testContentPath); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (verified match should not retry)", got)
 	}
+	assertBusted(t, r, false)
 	if want := filter.Apply(filter.BuiltinRule, body); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
@@ -558,12 +540,11 @@ func TestGetOrFetchVerifiedMatchCachesAndServes(t *testing.T) {
 func TestGetOrFetchVerifiedMismatchReturnsUnavailable(t *testing.T) {
 	shrinkBackoff(t)
 	const served = "tampered or stale bytes"
-	hits := stubRemote(t, served)
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, served)
 	const key = "k"
 
 	expected := sha256Hex("the real content")
-	_, err := m.GetOrFetch(key, "any/path.yaml", expected, knownMtime)
+	_, err := m.GetOrFetch(key, testContentPath, expected, knownMtime)
 	if err == nil {
 		t.Fatal("expected a verification error, got nil")
 	}
@@ -580,9 +561,10 @@ func TestGetOrFetchVerifiedMismatchReturnsUnavailable(t *testing.T) {
 	}
 
 	// It must have cache-busted: more than the single non-busted attempt.
-	if got := atomic.LoadInt32(hits); int(got) != contentFetchAttempts {
+	if got := r.Hits(testContentPath); got != contentFetchAttempts {
 		t.Errorf("remote fetches = %d, want %d (one normal + busted retries)", got, contentFetchAttempts)
 	}
+	assertBusted(t, r, false, true, true)
 
 	// Nothing cached — the slot stays empty so the next request retries.
 	m.mu.RLock()
@@ -602,17 +584,17 @@ func TestGetOrFetchVerifiedMismatchReturnsUnavailable(t *testing.T) {
 func TestGetOrFetchVerifiedBustRecovers(t *testing.T) {
 	shrinkBackoff(t)
 	const good = "the real content"
-	hits := stubRemoteSeq(t, "stale edge bytes", good)
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "stale edge bytes", good)
 	const key = "k"
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", sha256Hex(good), knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, sha256Hex(good), knownMtime)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 2 {
+	if got := r.Hits(testContentPath); got != 2 {
 		t.Errorf("remote fetches = %d, want 2 (one stale, one busted recovery)", got)
 	}
+	assertBusted(t, r, false, true)
 	if want := filter.Apply(filter.BuiltinRule, good); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}
@@ -627,8 +609,7 @@ func TestGetOrFetchVerifiedBustRecovers(t *testing.T) {
 // or re-hashing, even if the supplied digest would not match the cached bytes.
 // (If a future refactor moved verification onto the read path, this fails.)
 func TestGetOrFetchCacheHitSkipsVerification(t *testing.T) {
-	hits := stubRemote(t, "remote body that must never be fetched")
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "remote body that must never be fetched")
 	const key = "k"
 
 	// Prime memory + disk fresh (mtime >= indexMtime, disk file present).
@@ -637,11 +618,11 @@ func TestGetOrFetchCacheHitSkipsVerification(t *testing.T) {
 	// Deliberately pass a digest that does NOT match the cached content; a fresh
 	// cache hit must still serve it and never reach the verifying remote tier.
 	wrongSha := strings.Repeat("a", 64)
-	content, err := m.GetOrFetch(key, "any/path.yaml", wrongSha, knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, wrongSha, knownMtime)
 	if err != nil {
 		t.Fatalf("cache hit should serve without verifying: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 0 {
+	if got := r.Hits(testContentPath); got != 0 {
 		t.Errorf("remote fetches = %d, want 0 (cache hit must not re-fetch/re-verify)", got)
 	}
 	if content != "cached body" {
@@ -653,17 +634,17 @@ func TestGetOrFetchCacheHitSkipsVerification(t *testing.T) {
 // the content is fetched once and served without any verification, even though
 // it would not match an arbitrary hash.
 func TestGetOrFetchEmptySHASkipsVerification(t *testing.T) {
-	hits := stubRemote(t, "unverified legacy content")
-	m := &Manager{cacheDir: t.TempDir(), memory: make(map[string]cacheEntry)}
+	m, r := newRemoteManager(t, "unverified legacy content")
 	const key = "k"
 
-	content, err := m.GetOrFetch(key, "any/path.yaml", "", knownMtime)
+	content, err := m.GetOrFetch(key, testContentPath, "", knownMtime)
 	if err != nil {
 		t.Fatalf("GetOrFetch: %v", err)
 	}
-	if got := atomic.LoadInt32(hits); got != 1 {
+	if got := r.Hits(testContentPath); got != 1 {
 		t.Errorf("remote fetches = %d, want 1 (legacy path: single non-busted fetch)", got)
 	}
+	assertBusted(t, r, false)
 	if want := filter.Apply(filter.BuiltinRule, "unverified legacy content"); content != want {
 		t.Errorf("content = %q, want %q", content, want)
 	}

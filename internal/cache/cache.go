@@ -5,23 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
 
-// BaseContentURL is the base URL for P2KB content files. It is a var (not a
-// const) so tests can point the remote tier at a local httptest server.
-var BaseContentURL = "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main/"
-
 // Manager handles caching of P2KB content.
 type Manager struct {
+	fetcher  *fetch.Client
 	mu       sync.RWMutex
 	cacheDir string
 	memory   map[string]cacheEntry
@@ -32,9 +28,10 @@ type cacheEntry struct {
 	mtime   int64
 }
 
-// NewManager creates a new cache manager.
-func NewManager() *Manager {
+// NewManager creates a new cache manager that fetches through fetcher.
+func NewManager(fetcher *fetch.Client) *Manager {
 	return &Manager{
+		fetcher:  fetcher,
 		cacheDir: paths.GetCacheDirOrDefault(),
 		memory:   make(map[string]cacheEntry),
 	}
@@ -210,42 +207,14 @@ func (m *Manager) Invalidate(key string) {
 	_ = os.Remove(cachePath)
 }
 
-// fetchContent fetches content from the remote URL. When bust is true it adds a
-// cache-busting query parameter and no-cache headers to bypass the GitHub CDN
-// (Fastly), mirroring the index fetch — used only to re-fetch after a sha256
-// mismatch, never on the normal path.
+// fetchContent fetches the content file at path. bust is passed to the
+// fetcher; it is true only to re-fetch after a sha256 mismatch, never on the
+// normal path.
 func (m *Manager) fetchContent(path string, bust bool) (string, error) {
-	url := BaseContentURL + path
-	if bust {
-		// Fastly keys on the query string but ignores client Cache-Control;
-		// the unique ?t= is what actually forces a fresh origin fetch.
-		url = fmt.Sprintf("%s?t=%d", url, time.Now().UnixNano())
-	}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create content request: %w", err)
-	}
-	if bust {
-		req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		req.Header.Set("Pragma", "no-cache")
-	}
-
-	resp, err := http.DefaultClient.Do(req)
+	data, err := m.fetcher.Fetch(path, bust)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch content: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to fetch content: HTTP %d", resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read content: %w", err)
-	}
-
 	return string(data), nil
 }
 

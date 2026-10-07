@@ -2,11 +2,8 @@
 package index
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,12 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/paths"
 )
-
-// IndexURL is the URL of the compressed index file. It is a var (not a const)
-// so tests can point the remote tier at a local httptest server.
-var IndexURL = "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main/deliverables/ai/p2kb-index.json.gz"
 
 const (
 	// DefaultIndexTTL is the default time-to-live for the cached index.
@@ -81,6 +75,7 @@ type IndexStatus struct {
 
 // Manager handles index operations.
 type Manager struct {
+	fetcher          *fetch.Client
 	mu               sync.RWMutex
 	fetchMu          sync.Mutex // Prevents concurrent fetches, separate from data lock
 	index            *Index
@@ -91,10 +86,11 @@ type Manager struct {
 	lastErrorRefresh time.Time // Tracks last refresh-on-error attempt to prevent refresh storms
 }
 
-// NewManager creates a new index manager.
-func NewManager() *Manager {
+// NewManager creates a new index manager that fetches through fetcher.
+func NewManager(fetcher *fetch.Client) *Manager {
 	cacheDir := paths.GetCacheDirOrDefault()
 	return &Manager{
+		fetcher:   fetcher,
 		indexPath: filepath.Join(cacheDir, "index", "p2kb-index.json"),
 		metaPath:  filepath.Join(cacheDir, "index", "p2kb-index.meta"),
 		ttl:       getIndexTTL(),
@@ -810,54 +806,13 @@ func (m *Manager) loadFromCache() bool {
 // This method does NOT modify any state - it only performs network I/O and parsing.
 // Caller is responsible for updating the index under appropriate locks.
 //
-// When bust is true the request bypasses CDN caches: a nanosecond query param
-// (?t=<nano>) is appended and Cache-Control / Pragma no-cache headers are set.
-// Use bust=true for explicit user-triggered refreshes (Refresh).
-//
-// When bust is false the request is sent to plain IndexURL with no extra query
-// params or headers, allowing the Fastly CDN edge to serve a cached response.
-// Use bust=false for the routine lazy TTL-expiry path (EnsureIndex).
+// bust is passed to the fetcher: true for explicit user-triggered refreshes
+// (Refresh), false for the routine lazy TTL-expiry path (EnsureIndex) so the
+// CDN edge may answer it.
 func (m *Manager) fetchIndexData(bust bool) (*Index, []byte, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	fetchURL := IndexURL
-	if bust {
-		// Cache-busting query parameter to bypass GitHub CDN cache.
-		// GitHub's CDN (Fastly) ignores client-side Cache-Control headers,
-		// but treats different query strings as different resources.
-		fetchURL = fmt.Sprintf("%s?t=%d", IndexURL, time.Now().UnixNano())
-	}
-
-	req, err := http.NewRequest("GET", fetchURL, nil)
+	data, err := m.fetcher.FetchGzip(fetch.IndexPath, bust)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	if bust {
-		req.Header.Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		req.Header.Set("Pragma", "no-cache")
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("network error fetching index from %s: %w", IndexURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("HTTP %d fetching index from %s", resp.StatusCode, IndexURL)
-	}
-
-	// Decompress gzip
-	gr, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to decompress index: %w", err)
-	}
-	defer gr.Close()
-
-	data, err := io.ReadAll(gr)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read index data: %w", err)
+		return nil, nil, err
 	}
 
 	var idx Index

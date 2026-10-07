@@ -1,181 +1,149 @@
-package fetch
+package fetch_test
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
+
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
+	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
 )
 
-func TestNewClient(t *testing.T) {
-	c := NewClient()
-	if c == nil {
-		t.Fatal("NewClient() returned nil")
+func TestNewUsesDefaultBaseWhenUnset(t *testing.T) {
+	t.Setenv(fetch.BaseURLEnv, "")
+	c := fetch.New()
+	if got := c.BaseURL(); got != fetch.DefaultBaseURL {
+		t.Errorf("BaseURL() = %q, want %q", got, fetch.DefaultBaseURL)
 	}
-	if c.httpClient == nil {
-		t.Error("httpClient is nil")
-	}
-	if c.httpClient.Timeout != 30*time.Second {
-		t.Errorf("timeout = %v, want 30s", c.httpClient.Timeout)
-	}
-}
-
-func TestWithTimeout(t *testing.T) {
-	c := NewClient(WithTimeout(60 * time.Second))
-	if c.httpClient.Timeout != 60*time.Second {
-		t.Errorf("timeout = %v, want 60s", c.httpClient.Timeout)
+	want := "https://raw.githubusercontent.com/ironsheep/P2-Knowledge-Base/main/deliverables/ai/p2kb-index.json.gz"
+	if got := c.URL(fetch.IndexPath); got != want {
+		t.Errorf("URL(IndexPath) = %q, want %q", got, want)
 	}
 }
 
-func TestWithBaseURL(t *testing.T) {
-	c := NewClient(WithBaseURL("https://example.com/"))
-	if c.baseURL != "https://example.com/" {
-		t.Errorf("baseURL = %q, want https://example.com/", c.baseURL)
+func TestNewReadsBaseFromEnv(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put("deliverables/ai/P2/a.yaml", "a: 1\n")
+	t.Setenv(fetch.BaseURLEnv, r.URL())
+	c := fetch.New()
+
+	if _, err := c.FetchGzip(fetch.IndexPath, false); err != nil {
+		t.Fatalf("FetchGzip(IndexPath): %v", err)
 	}
-}
-
-func TestFetchURL(t *testing.T) {
-	// Create test server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("test content"))
-	}))
-	defer ts.Close()
-
-	c := NewClient()
-	data, err := c.FetchURL(ts.URL)
+	body, err := c.Fetch("deliverables/ai/P2/a.yaml", false)
 	if err != nil {
-		t.Fatalf("FetchURL failed: %v", err)
+		t.Fatalf("Fetch: %v", err)
 	}
-	if string(data) != "test content" {
-		t.Errorf("data = %q, want 'test content'", string(data))
+	if string(body) != "a: 1\n" {
+		t.Errorf("body = %q, want %q", body, "a: 1\n")
 	}
-}
-
-func TestFetchURLError(t *testing.T) {
-	// Create test server that returns 404
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-
-	c := NewClient()
-	_, err := c.FetchURL(ts.URL)
-	if err == nil {
-		t.Error("expected error for 404 response")
+	if r.Hits(fetch.IndexPath) != 1 || r.Hits("deliverables/ai/P2/a.yaml") != 1 {
+		t.Errorf("hits: index %d, content %d; want 1 and 1",
+			r.Hits(fetch.IndexPath), r.Hits("deliverables/ai/P2/a.yaml"))
 	}
 }
 
-func TestFetch(t *testing.T) {
-	// Create test server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/test/path.yaml" {
-			_, _ = w.Write([]byte("yaml content"))
-		} else {
-			w.WriteHeader(http.StatusNotFound)
+func TestTrailingSlashIsTrimmed(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put("a.yaml", "a")
+	for _, base := range []string{r.URL() + "/", r.URL() + "//"} {
+		c := fetch.NewWithBase(base)
+		if strings.HasSuffix(c.BaseURL(), "/") {
+			t.Errorf("BaseURL() for %q = %q, want no trailing slash", base, c.BaseURL())
 		}
-	}))
-	defer ts.Close()
-
-	c := NewClient(WithBaseURL(ts.URL + "/"))
-	data, err := c.Fetch("test/path.yaml")
-	if err != nil {
-		t.Fatalf("Fetch failed: %v", err)
-	}
-	if string(data) != "yaml content" {
-		t.Errorf("data = %q, want 'yaml content'", string(data))
-	}
-}
-
-func TestHeadURL(t *testing.T) {
-	// Create test server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "HEAD" {
-			t.Errorf("method = %q, want HEAD", r.Method)
+		if _, err := c.Fetch("a.yaml", false); err != nil {
+			t.Fatalf("Fetch via %q: %v", base, err)
 		}
-		if r.URL.Path == "/exists" {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
+	}
+	for _, req := range r.Requests("a.yaml") {
+		if req.URL.Path != "/a.yaml" {
+			t.Errorf("requested path %q, want /a.yaml", req.URL.Path)
 		}
-	}))
-	defer ts.Close()
-
-	c := NewClient()
-
-	// Test existing resource
-	exists, err := c.HeadURL(ts.URL + "/exists")
-	if err != nil {
-		t.Fatalf("HeadURL failed: %v", err)
 	}
-	if !exists {
-		t.Error("expected exists=true for /exists")
-	}
-
-	// Test non-existing resource
-	exists, err = c.HeadURL(ts.URL + "/notexists")
-	if err != nil {
-		t.Fatalf("HeadURL failed: %v", err)
-	}
-	if exists {
-		t.Error("expected exists=false for /notexists")
+	if got := r.Hits("a.yaml"); got != 2 {
+		t.Errorf("hits on a.yaml = %d, want 2 (a '//' path would miss)", got)
 	}
 }
 
-func TestHead(t *testing.T) {
-	// Create test server
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/test/exists.yaml" {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			w.WriteHeader(http.StatusNotFound)
+func TestBustAddsUniqueQueryAndNoCacheHeaders(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put("a.yaml", "a")
+	c := r.Client()
+	for i := 0; i < 2; i++ {
+		if _, err := c.Fetch("a.yaml", true); err != nil {
+			t.Fatalf("Fetch(bust): %v", err)
 		}
-	}))
-	defer ts.Close()
+	}
+	reqs := r.Requests("a.yaml")
+	if len(reqs) != 2 {
+		t.Fatalf("requests = %d, want 2", len(reqs))
+	}
+	seen := map[string]bool{}
+	for _, req := range reqs {
+		ts := req.URL.Query().Get("t")
+		if ts == "" {
+			t.Errorf("busted request %q has no ?t=", req.URL.String())
+		}
+		seen[ts] = true
+		if cc := req.Header.Get("Cache-Control"); cc != "no-cache, no-store, must-revalidate" {
+			t.Errorf("Cache-Control = %q", cc)
+		}
+		if p := req.Header.Get("Pragma"); p != "no-cache" {
+			t.Errorf("Pragma = %q", p)
+		}
+	}
+	if len(seen) != 2 {
+		t.Errorf("?t= values repeated across busted requests: %v", seen)
+	}
+}
 
-	c := NewClient(WithBaseURL(ts.URL + "/"))
+func TestNoBustSendsPlainRequest(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.Put("a.yaml", "a")
+	if _, err := r.Client().Fetch("a.yaml", false); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	req := r.Requests("a.yaml")[0]
+	if req.URL.RawQuery != "" {
+		t.Errorf("plain request has query %q", req.URL.RawQuery)
+	}
+	if cc := req.Header.Get("Cache-Control"); cc != "" {
+		t.Errorf("plain request has Cache-Control %q", cc)
+	}
+	if p := req.Header.Get("Pragma"); p != "" {
+		t.Errorf("plain request has Pragma %q", p)
+	}
+}
 
-	exists, err := c.Head("test/exists.yaml")
+func TestFetchGzipDecompresses(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	r.SetIndex(kbtest.Index{System: kbtest.System{Version: "9.9.9"}})
+	data, err := r.Client().FetchGzip(fetch.IndexPath, false)
 	if err != nil {
-		t.Fatalf("Head failed: %v", err)
+		t.Fatalf("FetchGzip: %v", err)
 	}
-	if !exists {
-		t.Error("expected exists=true")
-	}
-}
-
-func TestFetchGzipURL(t *testing.T) {
-	// Skip this test in short mode as it would need a proper gzip response
-	if testing.Short() {
-		t.Skip("skipping gzip test in short mode")
-	}
-
-	// Create test server with gzipped content
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// This would need actual gzip data
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-
-	c := NewClient()
-	_, err := c.FetchGzipURL(ts.URL)
-	// This will fail because the response isn't actually gzipped
-	// In real tests, we'd provide proper gzipped data
-	if err == nil {
-		t.Log("Note: FetchGzipURL test needs proper gzipped data")
+	if !strings.Contains(string(data), `"version":"9.9.9"`) {
+		t.Errorf("decompressed index = %s, want version 9.9.9", data)
 	}
 }
 
-func TestClientOptions(t *testing.T) {
-	// Test multiple options
-	c := NewClient(
-		WithTimeout(45*time.Second),
-		WithBaseURL("https://custom.example.com/"),
-	)
+func TestErrorsNameTheURL(t *testing.T) {
+	r := kbtest.NewRemote(t)
+	c := r.Client()
 
-	if c.httpClient.Timeout != 45*time.Second {
-		t.Errorf("timeout = %v, want 45s", c.httpClient.Timeout)
+	_, err := c.Fetch("missing.yaml", false)
+	if err == nil || !strings.Contains(err.Error(), c.URL("missing.yaml")) || !strings.Contains(err.Error(), "404") {
+		t.Errorf("non-200 error = %v, want HTTP 404 naming %s", err, c.URL("missing.yaml"))
 	}
-	if c.baseURL != "https://custom.example.com/" {
-		t.Errorf("baseURL = %q, want https://custom.example.com/", c.baseURL)
+
+	r.Put(fetch.IndexPath, "not gzip")
+	_, err = c.FetchGzip(fetch.IndexPath, false)
+	if err == nil || !strings.Contains(err.Error(), c.URL(fetch.IndexPath)) {
+		t.Errorf("corrupt gzip error = %v, want one naming %s", err, c.URL(fetch.IndexPath))
+	}
+
+	r.Close()
+	_, err = c.Fetch("a.yaml", false)
+	if err == nil || !strings.Contains(err.Error(), c.URL("a.yaml")) {
+		t.Errorf("network error = %v, want one naming %s", err, c.URL("a.yaml"))
 	}
 }

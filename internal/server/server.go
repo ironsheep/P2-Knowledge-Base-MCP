@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/ironsheep/p2kb-mcp/internal/cache"
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/index"
 	"github.com/ironsheep/p2kb-mcp/internal/obex"
 )
@@ -44,12 +45,14 @@ type MCPError struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// New creates and initializes a new MCP server instance.
+// New creates and initializes a new MCP server instance. The index and cache
+// managers share one fetcher, whose base URL is resolved here, once.
 func New(version string) *Server {
+	fetcher := fetch.New()
 	return &Server{
 		version:      version,
-		indexManager: index.NewManager(),
-		cacheManager: cache.NewManager(),
+		indexManager: index.NewManager(fetcher),
+		cacheManager: cache.NewManager(fetcher),
 		obexManager:  obex.NewManager(),
 	}
 }

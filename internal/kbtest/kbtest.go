@@ -13,10 +13,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 )
 
 // IndexPath is where the KB publishes its gzipped index, relative to the base URL.
-const IndexPath = "deliverables/ai/p2kb-index.json.gz"
+const IndexPath = fetch.IndexPath
 
 // Index mirrors the published index JSON. It is declared here rather than
 // borrowed from internal/index so that index's own tests can use Remote
@@ -82,6 +84,9 @@ func NewRemote(t testing.TB) *Remote {
 
 // URL returns the base URL, without a trailing slash.
 func (r *Remote) URL() string { return r.srv.URL }
+
+// Client returns a fetcher whose base is this Remote.
+func (r *Remote) Client() *fetch.Client { return fetch.NewWithBase(r.URL()) }
 
 // Close shuts the server down, so later requests fail with a network error.
 func (r *Remote) Close() { r.srv.Close() }
