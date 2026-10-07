@@ -1,6 +1,7 @@
 # DELIVERY-FILTER Sprint Plan — p2kb-mcp 1.5.0
 
-**Status:** ready for `sprint-start` — exit gate met 2026-10-07, no open questions.
+**Status:** **started 2026-10-07** — outgoing build **1.5.0** (`VERSION`, currently `1.4.0`).
+See *Sprint start* below.
 **Contract:** `DOCs/UPDATES-NO-COMMIT/MCP-DELIVERY-FILTER-HANDOFF.md` — the *delivery-filter
 interface agreement*, **AGREED 2026-10-07**. Cited below as **AGR §n**. It is canonical for the
 rule, the engine, rule resolution, the cache stamp, the `p2kb_version` fields and certification;
@@ -10,6 +11,26 @@ byte-identical 2026-10-07). Where it and the agreement differ, the agreement win
 **Closes:** KB register finding F-439, when AGR §10 live acceptance passes.
 **Baseline at planning:** HEAD `86318df`, `go build ./...` clean, `CGO_ENABLED=1 go test -race ./...`
 — all 7 packages pass (2026-10-07).
+
+---
+
+## Sprint start — 2026-10-07
+
+- **Build:** 1.5.0, agreed with the plan.
+- **Tree:** clean at `7a182f0` (spec import `dbeb6f2` + this plan). Untracked and deliberate:
+  `DOCs/UPDATES-NO-COMMIT/` (the agreement; not committed by name). Untracked and handled in §7:
+  `tasks/archives/` (todo-mcp's archive, written into the tree) and the ignored test debris under
+  `internal/server/{OBEX,custom}/`.
+- **Tracking:** ready. 11 completed tasks archived; 0 context keys; `MEMORY.md` 8 lines. One pending
+  task, «#12» (PyYAML), stays out of the sprint by Stephen's 2026-10-07 decision; it passes all four
+  shape tests.
+- **Entry baseline** (Linux devcontainer, Go 1.23.11, network available — 33 server tests currently
+  reach the live network, see §7.1): `go build ./...` clean, `go vet ./...` clean, 0 warnings;
+  `CGO_ENABLED=1 go test -race -count=1 -v ./...` → **237 run, 236 pass, 0 fail, 1 skip**, no crash.
+  First baseline with a run count; nothing to compare against.
+  - Skip: `TestGetWindowsCacheDir` (`internal/paths/paths_test.go:202`) is gated on
+    `runtime.GOOS == "windows"`, but `getWindowsCacheDir` (`paths.go:146`) only reads
+    `LOCALAPPDATA` and joins paths, so it runs on any OS. **Folded into §7.1:** remove the gate.
 
 ---
 
@@ -275,7 +296,8 @@ suite discard a developer's real cache. `TestHandleOBEXDownloadWithTargetDir`
 `internal/server/OBEX/` and `internal/server/custom/output/path/` debris.
 **Target:** one constructor helper used by every server test — temp `P2KB_CACHE_DIR`, the §7.2
 stub as `P2KB_BASE_URL`, and a temp working directory for download tests. No committed test reaches
-the network. Delete the debris directories.
+the network. Delete the debris directories. Remove the needless Windows gate on
+`TestGetWindowsCacheDir` (entry baseline's one skip), so the suite runs with zero skips.
 **Verify:** suite passes with networking disabled; `git status` clean after a full run; server
 package time drops accordingly (recorded, not targeted).
 
@@ -288,8 +310,10 @@ count hits per path. `cache`, `index`, `obex` and `server` tests use it; their p
 ### 7.3 `.gitignore`
 Remove the bare `/internal` line (`.gitignore:68`), which silently ignores every new file under
 `internal/` — including §2's testdata and §7.2's helper. Do this **first**, after §7.1's debris is
-deleted. **Verify:** `git check-ignore internal/filter/testdata/x` exits non-zero; `git status`
-shows only intended files.
+deleted. Add `tasks/` (todo-mcp writes its task archives into the working tree; agent artifacts stay
+off the commit surface, reconcile v10(d)). **Verify:** `git check-ignore internal/filter/testdata/x`
+exits non-zero; `git check-ignore tasks/archives/x` exits zero; `git status` shows only intended
+files.
 
 ## 8. Documentation and changelog
 
