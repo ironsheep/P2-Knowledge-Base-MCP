@@ -2,6 +2,10 @@
 
 P2KB MCP cache/refresh correctness + container-tools installer cache-backup fixes.
 
+**Status:** **CLOSED 2026-10-12 (retroactive)** — released as **1.4.0** (tag `v1.4.0`,
+2026-06-03); closed on regression evidence, without a full plan audit (Stephen, 2026-10-12).
+Closeout: `DOCs/plans/archive/2026-10-12-REFRESHFIXES-Sprint-Closeout.md`.
+
 **Problem this sprint solves:** `p2kb_refresh` can fetch a new index yet keep
 serving an old YAML — proven live (`stale_keys_found: 0`). Root causes span the
 cache read path, the staleness signal, content-refill integrity, cache-location
