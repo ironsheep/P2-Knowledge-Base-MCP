@@ -10,6 +10,7 @@ import (
 	"github.com/ironsheep/p2kb-mcp/internal/cache"
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/logging"
+	"github.com/ironsheep/p2kb-mcp/internal/obex"
 )
 
 // ToolCallParams represents the params for a tools/call request.
@@ -312,6 +313,9 @@ func (s *Server) handleOBEXGet(id interface{}, args json.RawMessage) *MCPRespons
 // getOBEXObject returns full OBEX object info with download instructions.
 func (s *Server) getOBEXObject(id interface{}, objectID string) *MCPResponse {
 	obj, err := s.obexManager.GetObject(objectID)
+	if err != nil && !errors.Is(err, obex.ErrObjectNotFound) {
+		return s.errorResponse(id, -32000, "Failed to get OBEX object", err.Error())
+	}
 	if err != nil {
 		return s.successResponse(id, map[string]interface{}{
 			"type":      "object_not_found",

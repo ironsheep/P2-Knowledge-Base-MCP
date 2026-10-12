@@ -67,7 +67,9 @@ func Stamp(rule filter.Rule) string {
 // SetRule makes rule the rule in effect. When the stamp on disk is not
 // rule's — a different rule, a different engine, or no stamp at all (a cache
 // from before stamping) — every cached body is discarded and the new stamp
-// written. Any fetch in flight re-filters under rule before it stores.
+// written. Any fetch in flight re-filters under rule before it stores. The
+// rule already in effect, with its stamp intact, changes nothing: the index
+// delivers the rule on every load so that the stamp is re-checked each time.
 func (m *Manager) SetRule(rule filter.Rule) {
 	stamp := Stamp(rule)
 
@@ -77,6 +79,10 @@ func (m *Manager) SetRule(rule filter.Rule) {
 	discard := m.readStamp() != stamp
 
 	m.mu.Lock()
+	if !discard && m.stamp == stamp {
+		m.mu.Unlock()
+		return
+	}
 	m.rule = rule
 	m.stamp = stamp
 	m.gen++

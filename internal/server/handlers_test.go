@@ -1139,6 +1139,19 @@ func TestOBEXGetResultShape(t *testing.T) {
 	}
 }
 
+// TestOBEXGetIndexUnavailableIsAnError: an unreachable index is reported as
+// an error, never as "object not found".
+func TestOBEXGetIndexUnavailableIsAnError(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveOBEXObject(r)
+	r.Close()
+
+	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"2811"}`))
+	if resp.Error == nil {
+		t.Errorf("handleOBEXGet result = %v, want an error", resp.Result)
+	}
+}
+
 // extractResultMap pulls the JSON result map out of a successResponse for assertions.
 func extractResultMap(t *testing.T, resp *MCPResponse) map[string]interface{} {
 	t.Helper()

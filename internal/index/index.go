@@ -89,9 +89,8 @@ type Manager struct {
 	ttl              time.Duration
 	lastErrorRefresh time.Time // Tracks last refresh-on-error attempt to prevent refresh storms
 
-	filterStatus    FilterStatus      // rule in effect; guarded by mu
-	onRule          func(filter.Rule) // rule-change callback; guarded by mu
-	deliveredRuleID string            // rule id last passed to onRule; guarded by fetchMu
+	filterStatus FilterStatus      // rule in effect; guarded by mu
+	onRule       func(filter.Rule) // rule-delivery callback; guarded by mu
 }
 
 // NewManager creates a new index manager that fetches through fetcher.

@@ -429,6 +429,14 @@ path and listed from the main index (§5), stamp file + generation counter + dis
   `p2kb_refresh flush`; its cache-location table did not match the code; `--help` gave wrong defaults
   for `P2KB_INDEX_TTL` (fixed in «#16») and `P2KB_CACHE_DIR`. `make test-short` and `make test-live`
   were removed: the suite needs no network, and `test-live` matched one unrelated test by name.
+- **2026-10-12, «#25» — closeout audit fixes** (Stephen: fix three, accept one). (1) The 1.5.0
+  CHANGELOG entry gains `### Breaking Changes` for the removed `related` field (§8 required it; the
+  tag keeps the original text). (2) §5's error case gets its tests, and `p2kb_obex_get` stops
+  reporting an unreadable index as "object not found": `obex.ErrObjectNotFound` separates the two.
+  (3) AGR §12 item 6: the index now delivers the rule on every install, not only when the rule id
+  changes, so the cache re-checks its stamp after every load; `cache.SetRule` is a no-op (no
+  discard, no generation bump) when the rule and the stamp on disk already match. Accepted:
+  `stamp_test.go`'s skip under root, where directory permissions cannot fail a write.
 
 ## Tasks — section ↔ task cross-reference
 

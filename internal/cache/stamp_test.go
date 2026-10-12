@@ -147,6 +147,50 @@ func TestMatchingStampKeepsBodies(t *testing.T) {
 	}
 }
 
+// TestRedeliveredRuleIsANoOp: the index delivers the rule on every install,
+// so SetRule with the rule already in effect and its stamp intact must neither
+// discard nor bump the generation (which would make in-flight fetches re-filter).
+func TestRedeliveredRuleIsANoOp(t *testing.T) {
+	m := newStampedManager(t, t.TempDir(), remoteWithBody(t))
+	m.SetRule(ruleA)
+	if err := m.saveToDisk("kept", "keep: 1\n", knownMtime); err != nil {
+		t.Fatal(err)
+	}
+	gen := m.gen
+
+	m.SetRule(ruleA)
+
+	if _, ok := diskBody(t, m, "kept"); !ok {
+		t.Error("re-delivering the same rule discarded the cache")
+	}
+	if m.gen != gen {
+		t.Errorf("generation = %d, want %d (unchanged)", m.gen, gen)
+	}
+}
+
+// TestRedeliveredRuleCatchesALostStamp: a stamp removed while the server runs
+// is caught at the next delivery of the same rule (agreement §6: the stamp is
+// checked after every index load), and the unstamped bodies are discarded.
+func TestRedeliveredRuleCatchesALostStamp(t *testing.T) {
+	m := newStampedManager(t, t.TempDir(), remoteWithBody(t))
+	m.SetRule(ruleA)
+	if err := m.saveToDisk("old", "keep: 1\n", knownMtime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(m.stampPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	m.SetRule(ruleA)
+
+	if _, ok := diskBody(t, m, "old"); ok {
+		t.Error("a body cached without a stamp survived")
+	}
+	if got := m.readStamp(); got != Stamp(ruleA) {
+		t.Errorf("stamp = %q, want %q", got, Stamp(ruleA))
+	}
+}
+
 func TestFlushKeepsStamp(t *testing.T) {
 	m := newStampedManager(t, t.TempDir(), remoteWithBody(t))
 	m.SetRule(ruleA)

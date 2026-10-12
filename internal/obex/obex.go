@@ -9,6 +9,7 @@ package obex
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,6 +42,10 @@ const (
 	// This prevents excessive refresh attempts when objects are genuinely not found.
 	ErrorRefreshCooldown = 5 * time.Minute
 )
+
+// ErrObjectNotFound is returned when the index lists no such object, as
+// distinct from failing to read the index or the object.
+var ErrObjectNotFound = errors.New("OBEX object not found")
 
 // ObjectMetadata represents the object_metadata section of an OBEX YAML file.
 type ObjectMetadata struct {
@@ -210,7 +215,7 @@ func (m *Manager) GetObject(objectID string) (*OBEXObject, error) {
 			}
 		}
 		if !ok {
-			return nil, fmt.Errorf("OBEX object not found: %s", objectID)
+			return nil, fmt.Errorf("%w: %s", ErrObjectNotFound, objectID)
 		}
 	}
 	return m.getObject(of)

@@ -282,10 +282,11 @@ func TestFreshCachedIndexResolvesRuleWithoutFetch(t *testing.T) {
 	}
 }
 
-// TestCallbackFiresOnlyWhenRuleChanges defines the delivery contract: the
-// first resolution always delivers; a re-resolution to the same rule_id does
-// not; a different rule_id does.
-func TestCallbackFiresOnlyWhenRuleChanges(t *testing.T) {
+// TestCallbackFiresOnEveryResolution defines the delivery contract: every
+// resolution delivers the rule in effect, the same rule included, so the cache
+// re-checks its stamp after every index load (agreement §6). The cache decides
+// whether anything changed.
+func TestCallbackFiresOnEveryResolution(t *testing.T) {
 	m, r, rec := newRuleManager(t)
 	serveBlock(r, indexRuleBlock)
 
@@ -306,7 +307,7 @@ func TestCallbackFiresOnlyWhenRuleChanges(t *testing.T) {
 	}
 
 	other, _ := filter.ParseRule(json.RawMessage(otherRuleBlock))
-	want := []filter.Rule{filter.BuiltinRule, indexRule, other}
+	want := []filter.Rule{filter.BuiltinRule, indexRule, indexRule, other, other}
 	if got := rec.delivered(); !reflect.DeepEqual(got, want) {
 		t.Errorf("deliveries =\n  %+v\nwant\n  %+v", got, want)
 	}
@@ -357,7 +358,15 @@ func TestConcurrentInstallsAndStatusReads(t *testing.T) {
 	wg.Wait()
 
 	assertStatus(t, m.FilterStatus(), indexRule, RuleSourceIndex)
-	if d := rec.delivered(); len(d) != 1 {
-		t.Errorf("deliveries = %d, want 1 (same rule every install)", len(d))
+	// Every install delivers (the cache re-checks its stamp each time), and
+	// every delivery is the one rule the index carries.
+	d := rec.delivered()
+	if want := r.Hits(fetch.IndexPath); len(d) != want {
+		t.Errorf("deliveries = %d, want %d (one per install)", len(d), want)
+	}
+	for i, rule := range d {
+		if !reflect.DeepEqual(rule, indexRule) {
+			t.Errorf("delivery %d = %+v, want the index rule", i, rule)
+		}
 	}
 }

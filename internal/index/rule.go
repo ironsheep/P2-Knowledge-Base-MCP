@@ -43,9 +43,11 @@ type ruleBlock struct {
 	RemoveColumn0Comments bool     `json:"remove_column0_comments"`
 }
 
-// OnRuleChange registers fn to receive the rule in effect whenever it changes,
-// starting with the first rule resolved. fn is called with no index lock held,
-// in resolution order; it must not call back into the index manager.
+// OnRuleChange registers fn to receive the rule in effect at every resolution
+// — startup and every index install — whether or not it changed, so the
+// receiver re-checks its cache stamp after every load (agreement §6). fn is
+// called with no index lock held, in resolution order; it must not call back
+// into the index manager.
 func (m *Manager) OnRuleChange(fn func(filter.Rule)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -100,16 +102,15 @@ func (m *Manager) installIndex(idx *Index, data []byte, refreshed time.Time) {
 	m.setFilterStatus(status)
 }
 
-// setFilterStatus records status and delivers its rule if the rule changed.
-// The caller holds fetchMu.
+// setFilterStatus records status and delivers its rule. The caller holds
+// fetchMu.
 func (m *Manager) setFilterStatus(status FilterStatus) {
 	m.mu.Lock()
 	m.filterStatus = status
 	fn := m.onRule
 	m.mu.Unlock()
 
-	if fn != nil && status.RuleID != m.deliveredRuleID {
-		m.deliveredRuleID = status.RuleID
+	if fn != nil {
 		fn(status.Rule)
 	}
 }

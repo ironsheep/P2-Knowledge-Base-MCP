@@ -18,7 +18,6 @@ Knowledge Base content arrives without its internal provenance, filtered by a ru
 
 - **OBEX tools**: the object list comes from the Knowledge Base index, so the GitHub API rate limit no longer applies; object files are verified like all other content
 - **Upgrading**: the first start after upgrading re-fetches cached content once, so content cached by earlier versions is delivered filtered
-- `p2kb_get`: results carry `type`, `key`, `content`, `categories` and, for alias lookups, `resolved_from`; related entries are named in `content`
 - `p2kb_version`: the `obex` section reports `total_objects`, `parsed_objects` and `cached_bodies`
 - `--help`: lists `P2KB_BASE_URL` and the defaults the server uses
 
@@ -26,6 +25,10 @@ Knowledge Base content arrives without its internal provenance, filtered by a ru
 
 - Content downloads time out after 30 seconds rather than waiting indefinitely on a stalled connection
 - `p2kb_obex_find` overview: authors with equal object counts no longer change order between calls
+
+### Breaking Changes
+
+- **BREAKING**: `p2kb_get` no longer returns a `related` field. Results carry `type`, `key`, `content`, `categories` and, for alias lookups, `resolved_from`; read related entries from `content`, which names them
 
 ## [1.4.0] - 2026-06-02
 

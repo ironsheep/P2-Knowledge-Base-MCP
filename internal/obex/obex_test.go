@@ -310,14 +310,44 @@ func TestNotFoundInCooldownDoesNotRefresh(t *testing.T) {
 	m.lastErrorRefresh = time.Now()
 	originalTime := m.lastErrorRefresh
 
-	if _, err := m.GetObject("9999"); err == nil {
-		t.Error("GetObject(9999) found a missing object")
+	if _, err := m.GetObject("9999"); !errors.Is(err, ErrObjectNotFound) {
+		t.Errorf("GetObject(9999) error = %v, want ErrObjectNotFound", err)
 	}
 	if got := r.Hits(fetch.IndexPath); got != 1 {
 		t.Errorf("index fetches = %d, want 1 (no refresh in cooldown)", got)
 	}
 	if m.lastErrorRefresh != originalTime {
 		t.Error("GetObject should NOT trigger error refresh when in cooldown")
+	}
+}
+
+// TestIndexUnavailableIsAnErrorNotAHang: with the index unreachable, every
+// OBEX read returns an error promptly, and GetObject's is not "not found".
+func TestIndexUnavailableIsAnErrorNotAHang(t *testing.T) {
+	m, r := newTestManager(t)
+	r.Close()
+
+	done := make(chan []error, 1)
+	go func() {
+		_, getErr := m.GetObject("2811")
+		_, searchErr := m.Search("serial", "", "", 10)
+		_, catErr := m.GetCategories()
+		_, browseErr := m.BrowseCategory("")
+		done <- []error{getErr, searchErr, catErr, browseErr}
+	}()
+
+	select {
+	case errs := <-done:
+		for i, err := range errs {
+			if err == nil {
+				t.Errorf("call %d: no error with the index unavailable", i)
+			}
+		}
+		if errors.Is(errs[0], ErrObjectNotFound) {
+			t.Errorf("GetObject error = %v, want an index error, not not-found", errs[0])
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("OBEX reads hung with the index unavailable")
 	}
 }
 
