@@ -359,6 +359,10 @@ shared walk and `unreadable_objects` (§5), one fixture set in `kbtest` (§7).
   the live KB: the find default `limit: 20` silently cut the Protocol browse to 20 of 32. Stephen
   chose removing the default over adding a `total` key (which would change O6's shape and need a KB
   change).
+- 2026-10-12 — §3's *No default limit* extended to `p2kb_obex_get`'s suggestions list («#35»,
+  Stephen: "yes please"). It searched with a fixed limit of 10 and nothing said so; live: `led` 37
+  matches → 10 suggestions, `full duplex serial` 16 → 10. Suggestions now list every match (O5
+  checks each entry's keys, unchanged).
 
 ## Tasks — section ↔ task cross-reference
 
@@ -375,6 +379,7 @@ Verify bullets **verbatim** (retrospective candidate 2, applied here ahead of ce
 | §6 | 13 log-only handler tests assert outcomes | «#31» | 6 | task-standard |
 | §8 | Docs, samples, OBEX spec re-import | «#32» | 7 | task-standard |
 | §3 (revision) | `p2kb_obex_find`: no default limit | «#34» | 7.5 | inline |
+| §3 (revision) | `p2kb_obex_get` suggestions: every match | «#35» | 7.6 | inline |
 | §9 | Release 1.5.1; O1–O7 | «#33» | 8 | inline |
 
 §0 (intent and rulings) has no row by design. «#12» (PyYAML) is outside the sprint, moved to seq 9.

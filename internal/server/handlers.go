@@ -270,7 +270,7 @@ func (s *Server) handleOBEXGet(id interface{}, args json.RawMessage) *MCPRespons
 	}
 
 	// Search for matching objects
-	results, unreadable, err := s.obexManager.Search(params.Query, "", "", 10)
+	results, unreadable, err := s.obexManager.Search(params.Query, "", "", 0) // every match
 	if err != nil {
 		return s.errorResponse(id, -32000, "OBEX search failed", err.Error())
 	}

@@ -566,6 +566,28 @@ func TestOBEXFindReturnsEveryMatchWithoutALimit(t *testing.T) {
 	}
 }
 
+// TestOBEXGetSuggestionsListEveryMatch: a query matching more than 10 objects
+// suggests every one of them, past the 10 that used to be a silent cut.
+func TestOBEXGetSuggestionsListEveryMatch(t *testing.T) {
+	const n = 15
+	srv, r := newTestServer(t)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("%d", 9200+i)
+		r.AddFile("p2kbCommunity"+id, obex.OBEXPath+"/"+id+".yaml", 1700000000, fmt.Sprintf(
+			"object_metadata:\n  object_id: '%s'\n  title: Serial Gadget %d\n  author: Some Author\n  functionality:\n    category: Protocol\n", id, i))
+	}
+
+	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"serial gadget"}`))
+	if resp.Error != nil {
+		t.Fatalf("handleOBEXGet: %v", resp.Error)
+	}
+	res := extractResultMap(t, resp)
+	suggestions, _ := res["suggestions"].([]interface{})
+	if res["type"] != "suggestions" || len(suggestions) != n {
+		t.Errorf("type %v with %d suggestions, want suggestions listing all %d", res["type"], len(suggestions), n)
+	}
+}
+
 // findIDs returns the sorted object_id of each object in a find result.
 func findIDs(t *testing.T, res map[string]interface{}) []string {
 	t.Helper()

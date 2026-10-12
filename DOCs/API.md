@@ -325,7 +325,7 @@ same shape; shown for object 4581, with `description_full` shortened (truncated)
 **Returns (multiple matches):**
 
 Each suggestion carries `match_type` (what matched: `title`, `description` or `tag`). Shown for
-`query: "full duplex serial"`, first 3 of 10 suggestions (truncated):
+`query: "full duplex serial"`; suggestions list every match, first 3 of 16 shown (truncated):
 
 ```json
 {
