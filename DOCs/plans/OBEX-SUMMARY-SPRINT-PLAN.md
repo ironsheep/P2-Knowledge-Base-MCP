@@ -236,9 +236,13 @@ zero.*
 
 ## 6. Tests that cannot fail
 
-**Why.** D2. Found in research: `handlers_test.go:445-556` and `:762-856` call OBEX handlers and
-only `t.Log` an error ("expected if no network"). Since 1.5.0 the suite is network-free, so the
-excuse is gone and these tests pass whatever the handler does.
+**Why.** D2. Found in research: 13 tests in `internal/server/handlers_test.go` call a handler and
+only `t.Log` an error ("expected if no network" / "no index") — the whole family, found by
+`grep -rn "t.Log(.*error" --include=*_test.go internal` (no others in the suite): `p2kb_find` at
+`:393, :416`; `p2kb_obex_get` at `:464, :487`; `p2kb_obex_find` at `:510, :532, :554`;
+`p2kb_refresh` at `:577, :599`; `p2kb_obex_download` at `:781, :809, :833, :856`. Since 1.5.0 the
+suite is network-free, so the excuse is gone and these tests pass whatever the handler does. The
+four non-OBEX ones are in scope because the class is (D5: the whole family when found).
 
 **Target.** Each asserts its outcome against the `kbtest` fixture: the object found, the search
 result present, the category browse populated, the download written. Old category names in them
@@ -340,3 +344,40 @@ links there rather than restating the schema.
 None. Every design call is stated for veto — the `Category` type
 (§1), `full_metadata` decoding and memoizing (§2), `no_download` as a success result (§4), the
 shared walk and `unreadable_objects` (§5), one fixture set in `kbtest` (§7).
+
+## Revisions
+
+(none)
+
+## Tasks — section ↔ task cross-reference
+
+Sprint tag `obexsummary`. Generated 2026-10-12 by `plan-to-tasks`. Each task carries its section's
+Verify bullets **verbatim** (retrospective candidate 2, applied here ahead of central).
+
+| Plan § | Deliverable | Task | seq | execution |
+| ------ | ----------- | ---- | --- | --------- |
+| §1 + §7 | Category string-or-list; struct to the mirror; shared fixtures | «#26» | 1 | task-standard, two-phase |
+| §5 | One shared walk; `unreadable_objects` reported | «#27» | 2 | task-standard |
+| §2 | `p2kb_obex_get`: honest `metadata`, `download_*` from data, `full_metadata` | «#28» | 3 | task-standard |
+| §3 | `p2kb_obex_find`: categories from the data | «#29» | 4 | task-mechanical |
+| §4 | `p2kb_obex_download`: `no_download`; id-built URL deleted | «#30» | 5 | task-standard |
+| §6 | 13 log-only handler tests assert outcomes | «#31» | 6 | task-standard |
+| §8 | Docs, samples, OBEX spec re-import | «#32» | 7 | task-standard |
+| §9 | Release 1.5.1; O1–O7 | «#33» | 8 | inline |
+
+§0 (intent and rulings) has no row by design. «#12» (PyYAML) is outside the sprint, moved to seq 9.
+
+**Order rationale (rework pass).** «#26» first: every later task builds on the `Category` type, the
+reduced struct and the shared fixtures (foundation before building). «#27» before «#28»/«#29»: the
+shared walk replaces the loops those tasks would otherwise edit, and its malformed fixture comes
+from «#26». «#30» after «#28» so the id-built URL is deleted once, after its last reader moved off
+it. «#31» after every behaviour task, so its rewritten tests assert final shapes (standards before
+application). «#32» after all behaviour (a change precedes the capture of its sample). «#33» last:
+acceptance certifies the final tree.
+
+**Green units.** Every task ends green on its own; no atomic pair. «#26» keeps `handlers.go`
+compiling by reducing `metadata` to `{created_date}`; «#28» adds the omission rules.
+
+**Dispatch.** `arbiter-serial` (project default): the tasks share `obex.go`, `handlers.go` and the
+fixtures, and «#26» is shape-foundational — two-phase (Category type + fixtures first, reviewed,
+then the rest).
