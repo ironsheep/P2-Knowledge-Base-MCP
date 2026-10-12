@@ -1,7 +1,7 @@
 # DELIVERY-FILTER Sprint Plan — p2kb-mcp 1.5.0
 
-**Status:** **started 2026-10-07** — outgoing build **1.5.0** (`VERSION`, currently `1.4.0`).
-See *Sprint start* below.
+**Status:** **CLOSED 2026-10-12** — released as **1.5.0** (tag `v1.5.0`, 2026-10-07); plan
+certified. Audit: `DOCs/plans/archive/2026-10-12-DELIVERY-FILTER-Sprint-Closeout.md`.
 **Contract:** `DOCs/UPDATES-NO-COMMIT/MCP-DELIVERY-FILTER-HANDOFF.md` — the *delivery-filter
 interface agreement*, **AGREED 2026-10-07**. Cited below as **AGR §n**. It is canonical for the
 rule, the engine, rule resolution, the cache stamp, the `p2kb_version` fields and certification;
