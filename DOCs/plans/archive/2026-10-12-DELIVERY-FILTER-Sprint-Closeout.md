@@ -1,5 +1,7 @@
 # DELIVERY-FILTER Sprint Closeout — p2kb-mcp 1.5.0
 
+*Retrospective: `DOCs/plans/archive/2026-10-12-DELIVERY-FILTER-Retrospective.md`*
+
 **Closed:** 2026-10-12. **Plan:** `DOCs/plans/archive/DELIVERY-FILTER-SPRINT-PLAN.md`.
 **Released:** v1.5.0, tagged 2026-10-07 (`cac3d88`); Release workflow run 37699296356 succeeded.
 **Closes:** KB register finding F-439. Agreement §10.3 live acceptance passed on 1.5.0, 2026-10-12.
