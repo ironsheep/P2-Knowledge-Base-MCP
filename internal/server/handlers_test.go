@@ -377,7 +377,8 @@ func TestHandleGetInvalidArgs(t *testing.T) {
 // Test p2kb_find
 
 func TestHandleFindNoParams(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, r := newTestServer(t)
+	serveMov(r)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      "p2kb_find",
 		"arguments": map[string]interface{}{},
@@ -391,16 +392,22 @@ func TestHandleFindNoParams(t *testing.T) {
 	}
 
 	resp := srv.handleRequest(req)
-	// Should return categories list, not an error
-	// (may fail if index not available, but structure should be correct)
 	if resp.Error != nil {
-		// This is acceptable if index is not available
-		t.Log("handleFind returned error (expected if no index):", resp.Error.Message)
+		t.Fatalf("p2kb_find returned error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "categories" {
+		t.Errorf("type = %v, want categories", got["type"])
+	}
+	cats, _ := got["categories"].(map[string]interface{})
+	if cats["pasm2_data"] != float64(1) {
+		t.Errorf("categories = %v, want pasm2_data with 1 entry", got["categories"])
 	}
 }
 
 func TestHandleFindWithTerm(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, r := newTestServer(t)
+	serveMov(r)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_find",
 		"arguments": map[string]interface{}{
@@ -416,9 +423,15 @@ func TestHandleFindWithTerm(t *testing.T) {
 	}
 
 	resp := srv.handleRequest(req)
-	// Should search for keys containing "mov"
 	if resp.Error != nil {
-		t.Log("handleFind with term returned error (expected if no index):", resp.Error.Message)
+		t.Fatalf("p2kb_find returned error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "keys" || got["term"] != "mov" || got["count"] != float64(1) {
+		t.Errorf("result = %v, want type keys, term mov, count 1", got)
+	}
+	if keys, _ := got["keys"].([]interface{}); !reflect.DeepEqual(keys, []interface{}{"p2kbPasm2Mov"}) {
+		t.Errorf("keys = %v, want [p2kbPasm2Mov]", got["keys"])
 	}
 }
 
@@ -447,35 +460,18 @@ func TestHandleOBEXGetMissingQuery(t *testing.T) {
 	}
 }
 
-func TestHandleOBEXGetWithNumericID(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name": "p2kb_obex_get",
-		"arguments": map[string]interface{}{
-			"query": "2811",
-		},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	// May fail due to network, but tests the path
-	if resp.Error != nil {
-		t.Log("handleOBEXGet with ID returned error (expected if no network):", resp.Error.Message)
-	}
-}
-
+// A free-text query that matches exactly one object resolves to that object's
+// full result, as a numeric id does. (The numeric-id path is covered by
+// TestOBEXGetResultShape.)
 func TestHandleOBEXGetWithSearchTerm(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_get",
 		"arguments": map[string]interface{}{
-			"query": "led driver",
+			"query": "Full Duplex",
 		},
 	})
 
@@ -487,59 +483,22 @@ func TestHandleOBEXGetWithSearchTerm(t *testing.T) {
 	}
 
 	resp := srv.handleRequest(req)
-	// May fail due to network, but tests the path
 	if resp.Error != nil {
-		t.Log("handleOBEXGet with search returned error (expected if no network):", resp.Error.Message)
+		t.Fatalf("p2kb_obex_get returned error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "obex_object" || got["object_id"] != "2842" || got["title"] != "Full Duplex Serial" {
+		t.Errorf("result = %v, want the obex_object for 2842", got)
 	}
 }
 
 // Test p2kb_obex_find
 
-func TestHandleOBEXFindNoParams(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_obex_find",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	// Should return overview with categories
-	if resp.Error != nil {
-		t.Log("handleOBEXFind returned error (expected if no network):", resp.Error.Message)
-	}
-}
-
-func TestHandleOBEXFindWithCategory(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name": "p2kb_obex_find",
-		"arguments": map[string]interface{}{
-			"category": "Protocol",
-		},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	if resp.Error != nil {
-		t.Log("handleOBEXFind with category returned error (expected if no network):", resp.Error.Message)
-	}
-}
-
 func TestHandleOBEXFindWithAuthor(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_find",
 		"arguments": map[string]interface{}{
@@ -556,7 +515,14 @@ func TestHandleOBEXFindWithAuthor(t *testing.T) {
 
 	resp := srv.handleRequest(req)
 	if resp.Error != nil {
-		t.Log("handleOBEXFind with author returned error (expected if no network):", resp.Error.Message)
+		t.Fatalf("p2kb_obex_find returned error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "objects" || got["author"] != "Jon" || got["count"] != float64(1) {
+		t.Errorf("result = %v, want type objects, author Jon, count 1", got)
+	}
+	if ids := findIDs(t, got); !reflect.DeepEqual(ids, []string{"2842"}) {
+		t.Errorf("object ids = %v, want [2842] (Jon McPhalen)", ids)
 	}
 }
 
@@ -682,29 +648,11 @@ func TestOBEXFindTermResultShape(t *testing.T) {
 
 // Test p2kb_refresh
 
-func TestHandleRefresh(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name":      "p2kb_refresh",
-		"arguments": map[string]interface{}{},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	// May fail due to network
-	if resp.Error != nil {
-		t.Log("handleRefresh returned error (expected if no network):", resp.Error.Message)
-	}
-}
+// The plain refresh (no arguments) is covered by TestHandleRefreshSelectivePathUnchanged.
 
 func TestHandleRefreshWithOBEX(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_refresh",
 		"arguments": map[string]interface{}{
@@ -721,7 +669,14 @@ func TestHandleRefreshWithOBEX(t *testing.T) {
 
 	resp := srv.handleRequest(req)
 	if resp.Error != nil {
-		t.Log("handleRefresh with OBEX returned error (expected if no network):", resp.Error.Message)
+		t.Fatalf("p2kb_refresh returned error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["refreshed"] != true || got["flushed"] != false || got["obex_refreshed"] != true {
+		t.Errorf("result = %v, want refreshed true, flushed false, obex_refreshed true", got)
+	}
+	if msg, present := got["obex_error"]; present {
+		t.Errorf("obex_error = %v, want the key absent", msg)
 	}
 }
 
@@ -884,106 +839,72 @@ func TestHandleOBEXDownloadInvalidArgs(t *testing.T) {
 	}
 }
 
-func TestHandleOBEXDownloadWithObjectID(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name": "p2kb_obex_download",
-		"arguments": map[string]interface{}{
-			"object_id": "2811",
-		},
-	})
-
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	// Will fail due to network, but tests the path
-	if resp.Error != nil {
-		t.Log("handleOBEXDownload returned error (expected if no network):", resp.Error.Message)
-		// Verify it's a -32000 error (operation failed) not -32602 (invalid params)
-		if resp.Error.Code == -32602 {
-			t.Error("should not be invalid params error")
-		}
-	}
-}
+// The plain numeric-id download is covered by TestHandleOBEXDownloadFromDownloadDirect.
 
 func TestHandleOBEXDownloadWithTargetDir(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name": "p2kb_obex_download",
-		"arguments": map[string]interface{}{
-			"object_id":  "2811",
-			"target_dir": "custom/output/path",
-		},
-	})
+	srv, r := newTestServer(t)
+	serveParkDownload(r)
 
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	// Will fail due to network, but tests the path
+	resp := downloadResponse(t, srv, map[string]interface{}{"object_id": "2811", "target_dir": "custom/output/path"})
 	if resp.Error != nil {
-		t.Log("handleOBEXDownload with target_dir returned error (expected if no network):", resp.Error.Message)
+		t.Fatalf("error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "download_complete" || got["file_count"] != float64(1) {
+		t.Errorf("result = %v", got)
+	}
+	wantPath, _ := filepath.Abs("custom/output/path")
+	if got["extraction_path"] != wantPath {
+		t.Errorf("extraction_path = %v, want %s", got["extraction_path"], wantPath)
+	}
+	if b, err := os.ReadFile(filepath.Join("custom", "output", "path", "park.spin2")); err != nil || string(b) != "' park" {
+		t.Errorf("extracted file = %q, err %v, want %q", b, err, "' park")
 	}
 }
 
 func TestHandleOBEXDownloadWithPathTraversal(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name": "p2kb_obex_download",
-		"arguments": map[string]interface{}{
-			"object_id":  "2811",
-			"target_dir": "../../../etc/passwd",
-		},
-	})
+	srv, r := newTestServer(t)
+	serveParkDownload(r)
 
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
+	resp := downloadResponse(t, srv, map[string]interface{}{"object_id": "2811", "target_dir": "../../../etc/passwd"})
+	if resp.Error == nil || resp.Error.Code != -32000 {
+		t.Fatalf("want a -32000 error for a path traversal target_dir, got %+v", resp)
 	}
-
-	resp := srv.handleRequest(req)
-	// Should fail due to path traversal attempt (or network, but the path check comes later)
-	if resp.Error != nil {
-		t.Log("handleOBEXDownload with path traversal returned error:", resp.Error.Message)
+	if n := r.Hits("dl/park.zip"); n != 0 {
+		t.Errorf("download host saw %d requests, want 0 (the path check comes first)", n)
 	}
 }
 
 func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
-	srv, _ := newTestServer(t)
-	params, _ := json.Marshal(map[string]interface{}{
-		"name": "p2kb_obex_download",
-		"arguments": map[string]interface{}{
-			"object_id": "OB2811",
-		},
-	})
+	srv, r := newTestServer(t)
+	serveParkDownload(r)
 
-	req := &MCPRequest{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "tools/call",
-		Params:  params,
-	}
-
-	resp := srv.handleRequest(req)
-	// Will fail due to network, but tests that OB prefix is handled
+	resp := downloadResponse(t, srv, map[string]interface{}{"object_id": "OB2811"})
 	if resp.Error != nil {
-		t.Log("handleOBEXDownload with OB prefix returned error (expected if no network):", resp.Error.Message)
-		// Should NOT be a "missing parameter" error
-		if resp.Error.Code == -32602 {
-			t.Error("OB prefix should be accepted")
-		}
+		t.Fatalf("error: %+v", resp.Error)
 	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "download_complete" || got["object_id"] != "2811" || got["file_count"] != float64(1) {
+		t.Errorf("result = %v, want download_complete for 2811 with 1 file", got)
+	}
+	if b, err := os.ReadFile(filepath.Join("OBEX", "2811-park-transformation", "park.spin2")); err != nil || string(b) != "' park" {
+		t.Errorf("extracted file = %q, err %v, want %q", b, err, "' park")
+	}
+}
+
+// serveParkDownload makes r serve object 2811 with its download_direct pointing
+// at r, and a one-file zip (park.spin2) there.
+func serveParkDownload(r *kbtest.Remote) {
+	body := strings.Replace(kbtest.OBEXObject(kbtest.OBEXListCategoryID),
+		"https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811",
+		r.URL()+"/dl/park.zip", 1)
+	r.AddFile("p2kbCommunity2811", kbtest.OBEXObjectsPath+"/2811.yaml", 1700000000, body)
+	zbuf := new(bytes.Buffer)
+	zw := zip.NewWriter(zbuf)
+	w, _ := zw.Create("park.spin2")
+	_, _ = w.Write([]byte("' park"))
+	_ = zw.Close()
+	r.Put("dl/park.zip", zbuf.String())
 }
 
 // downloadResponse calls p2kb_obex_download and returns the response.
@@ -1024,16 +945,7 @@ func TestHandleOBEXDownloadNoDownload(t *testing.T) {
 
 func TestHandleOBEXDownloadFromDownloadDirect(t *testing.T) {
 	srv, r := newTestServer(t)
-	body := strings.Replace(kbtest.OBEXObject(kbtest.OBEXListCategoryID),
-		"https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811",
-		r.URL()+"/dl/park.zip", 1)
-	r.AddFile("p2kbCommunity2811", kbtest.OBEXObjectsPath+"/2811.yaml", 1700000000, body)
-	zbuf := new(bytes.Buffer)
-	zw := zip.NewWriter(zbuf)
-	w, _ := zw.Create("park.spin2")
-	_, _ = w.Write([]byte("' park"))
-	_ = zw.Close()
-	r.Put("dl/park.zip", zbuf.String())
+	serveParkDownload(r)
 
 	resp := downloadResponse(t, srv, map[string]interface{}{"object_id": "2811"})
 	if resp.Error != nil {
