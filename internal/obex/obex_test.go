@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -210,18 +211,18 @@ func TestSearchCategoriesAuthorsAcrossAllObjects(t *testing.T) {
 	m, r := newTestManager(t)
 	addTypicalObjects(r)
 
-	results, err := m.Search("servo", "", "", 10)
+	results, _, err := m.Search("servo", "", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 1 || results[0].ObjectID != "2811" || results[0].MatchType != "tag" {
 		t.Errorf("Search(servo) = %+v", results)
 	}
-	if results, _ := m.Search("serial", "", "", 10); len(results) != 1 || results[0].ObjectID != "2842" {
+	if results, _, _ := m.Search("serial", "", "", 10); len(results) != 1 || results[0].ObjectID != "2842" {
 		t.Errorf("Search(serial) = %+v", results)
 	}
 
-	cats, err := m.GetCategories()
+	cats, _, err := m.GetCategories()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,24 +234,175 @@ func TestSearchCategoriesAuthorsAcrossAllObjects(t *testing.T) {
 	// A lowercase name finds both the list-category object and the string one.
 	// On the 1.5.0 string type 2811 failed to parse and was dropped, so this
 	// found only 2842.
-	browse, err := m.BrowseCategory("protocol")
+	browse, _, err := m.BrowseCategory("protocol")
 	if err != nil || len(browse) != 2 || browse[0].ObjectID != "2811" || browse[1].ObjectID != "2842" {
 		t.Errorf("BrowseCategory(protocol) = %+v, %v", browse, err)
 	}
-	if browse, err := m.BrowseCategory("motor control"); err != nil || len(browse) != 1 || browse[0].ObjectID != "2811" {
+	if browse, _, err := m.BrowseCategory("motor control"); err != nil || len(browse) != 1 || browse[0].ObjectID != "2811" {
 		t.Errorf("BrowseCategory(motor control) = %+v, %v", browse, err)
 	}
-	found, err := m.Search("park", "protocol", "", 10)
+	found, _, err := m.Search("park", "protocol", "", 10)
 	if err != nil || len(found) != 1 || found[0].ObjectID != "2811" {
 		t.Errorf("Search(park, protocol) = %+v, %v", found, err)
 	}
-	if none, _ := m.Search("park", "display", "", 10); len(none) != 0 {
+	if none, _, _ := m.Search("park", "display", "", 10); len(none) != 0 {
 		t.Errorf("Search(park, display) = %+v, want none", none)
 	}
 
-	authors, err := m.GetAuthors()
+	authors, _, err := m.GetAuthors()
 	if err != nil || len(authors) != 2 {
 		t.Errorf("GetAuthors = %+v, %v", authors, err)
+	}
+}
+
+// TestUnreadableObjectIsReportedNotDropped: the malformed object 9990 among
+// good ones is listed with its error by every walk, the counts exclude it, and
+// a healthy set lists none. If the shared walk went back to skipping a bad
+// object silently, the unreadable lists here would be empty and this fails.
+func TestUnreadableObjectIsReportedNotDropped(t *testing.T) {
+	m, r := newTestManager(t)
+	addTypicalObjects(r)
+
+	check := func(what string, bad []Unreadable) {
+		t.Helper()
+		if len(bad) != 0 {
+			t.Errorf("%s: healthy fixture lists unreadable objects: %+v", what, bad)
+		}
+	}
+	_, bad, _ := m.Search("serial", "", "", 10)
+	check("Search", bad)
+	_, bad, _ = m.GetCategories()
+	check("GetCategories", bad)
+	_, bad, _ = m.BrowseCategory("")
+	check("BrowseCategory", bad)
+	_, bad, _ = m.GetAuthors()
+	check("GetAuthors", bad)
+	bad, _ = m.UnreadableObjects()
+	check("UnreadableObjects", bad)
+
+	r.AddOBEX(kbtest.OBEXMalformedID)
+	if err := m.index.Refresh(); err != nil { // the healthy walks above loaded the index
+		t.Fatal(err)
+	}
+
+	assertBad := func(what string, bad []Unreadable, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		if len(bad) != 1 || bad[0].ObjectID != "9990" ||
+			!strings.Contains(bad[0].Error, "9990") || !strings.Contains(bad[0].Error, "category") {
+			t.Errorf("%s: unreadable = %+v, want 9990 with its parse error", what, bad)
+		}
+	}
+
+	found, bad, err := m.Search("serial", "", "", 10)
+	assertBad("Search", bad, err)
+	if len(found) != 1 || found[0].ObjectID != "2842" {
+		t.Errorf("Search(serial) = %+v, want the good object", found)
+	}
+	cats, bad, err := m.GetCategories()
+	assertBad("GetCategories", bad, err)
+	if want := map[string]int{"Protocol": 2, "Math": 1, "Motor Control": 1, "Snippet": 1}; !reflect.DeepEqual(cats, want) {
+		t.Errorf("GetCategories = %v, want %v (9990 excluded)", cats, want)
+	}
+	browse, bad, err := m.BrowseCategory("")
+	assertBad("BrowseCategory", bad, err)
+	if len(browse) != 2 {
+		t.Errorf("BrowseCategory = %+v, want the 2 good objects", browse)
+	}
+	authors, bad, err := m.GetAuthors()
+	assertBad("GetAuthors", bad, err)
+	if len(authors) != 2 {
+		t.Errorf("GetAuthors = %+v, want 2", authors)
+	}
+	bad, err = m.UnreadableObjects()
+	assertBad("UnreadableObjects", bad, err)
+
+	_, err = m.GetObject("9990")
+	if err == nil || errors.Is(err, ErrObjectNotFound) || !strings.Contains(err.Error(), "9990") {
+		t.Errorf("GetObject(9990) error = %v, want an error naming 9990, not not-found", err)
+	}
+}
+
+// TestUnreadableBodyReadFailureIsReportedNotFatal: an object listed in the
+// index whose body cannot be fetched (404) is reported as unreadable beside the
+// good ones, and does not fail the call. The previous version returned the
+// fetch error from every walk, so these calls would have errored.
+func TestUnreadableBodyReadFailureIsReportedNotFatal(t *testing.T) {
+	m, r := newTestManager(t)
+	addTypicalObjects(r)
+	// Listed with a hash, but no body is served for it: HTTP 404.
+	r.AddFile("p2kbCommunity8881", objectPath("8881"), 1700000000, "object_metadata:\n  object_id: \"8881\"\n")
+	r.Put(objectPath("8881")) // serve nothing
+
+	check := func(what string, bad []Unreadable, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", what, err)
+		}
+		if len(bad) != 1 || bad[0].ObjectID != "8881" || !strings.Contains(bad[0].Error, "8881") {
+			t.Errorf("%s: unreadable = %+v, want 8881 with its error", what, bad)
+		}
+	}
+	found, bad, err := m.Search("serial", "", "", 10)
+	check("Search", bad, err)
+	if len(found) != 1 || found[0].ObjectID != "2842" {
+		t.Errorf("Search(serial) = %+v, want the good object", found)
+	}
+	browse, bad, err := m.BrowseCategory("")
+	check("BrowseCategory", bad, err)
+	if len(browse) != 2 {
+		t.Errorf("BrowseCategory = %+v, want the 2 good objects", browse)
+	}
+	cats, bad, err := m.GetCategories()
+	check("GetCategories", bad, err)
+	if cats["Protocol"] != 2 {
+		t.Errorf("GetCategories = %v, want 8881 excluded", cats)
+	}
+	_, err = m.GetObject("8881")
+	if err == nil || errors.Is(err, ErrObjectNotFound) || !strings.Contains(err.Error(), "8881") {
+		t.Errorf("GetObject(8881) error = %v, want an error naming 8881, not not-found", err)
+	}
+}
+
+// TestUnreadableObjectWarnsOncePerVersion: repeated calls log the bad object
+// once; a new body version logs again.
+func TestUnreadableObjectWarnsOncePerVersion(t *testing.T) {
+	m, r := newTestManager(t)
+	addTypicalObjects(r)
+	r.AddOBEX(kbtest.OBEXMalformedID)
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	warns := func() int { return strings.Count(buf.String(), "OBEX object 9990 is unreadable") }
+
+	for i := 0; i < 3; i++ {
+		if _, _, err := m.Search("serial", "", "", 10); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := m.BrowseCategory(""); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = m.GetObject("9990")
+	}
+	if got := warns(); got != 1 {
+		t.Errorf("warn lines for 9990 after repeated calls = %d, want 1; log:\n%s", got, buf.String())
+	}
+
+	// A different body is a new version, so it is warned about again.
+	r.AddFile("p2kbCommunity9990", objectPath("9990"), 1700000001, kbtest.OBEXObject("9990")+"# changed\n")
+	if err := m.index.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, _, err := m.BrowseCategory(""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := warns(); got != 2 {
+		t.Errorf("warn lines for 9990 after the body changed = %d, want 2", got)
 	}
 }
 
@@ -262,7 +414,7 @@ func TestGetAuthorsOrdersTiesByName(t *testing.T) {
 	}
 	want := []AuthorStats{{"amy", 2}, {"kim", 1}, {"zed", 1}}
 	for i := 0; i < 20; i++ { // map order varies run to run; the result must not
-		got, err := m.GetAuthors()
+		got, _, err := m.GetAuthors()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -313,7 +465,7 @@ func TestGetCategoriesCountsEmptyAndAbsentAsUncategorized(t *testing.T) {
 	addObject(r, "7001", "object_metadata:\n  object_id: \"7001\"\n  functionality:\n    category: \"\"\n")
 	addObject(r, "7002", "object_metadata:\n  object_id: \"7002\"\n  title: no category at all\n")
 
-	cats, err := m.GetCategories()
+	cats, _, err := m.GetCategories()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +475,7 @@ func TestGetCategoriesCountsEmptyAndAbsentAsUncategorized(t *testing.T) {
 	if got := cats["Math"]; got != 1 {
 		t.Errorf("Math = %d, want 1; all = %v", got, cats)
 	}
-	browse, err := m.BrowseCategory("")
+	browse, _, err := m.BrowseCategory("")
 	if err != nil || len(browse) != 3 {
 		t.Fatalf("BrowseCategory(\"\") = %+v, %v", browse, err)
 	}
@@ -336,7 +488,7 @@ func TestSearchResultJSONKeepsTheCategoryForm(t *testing.T) {
 	m, r := newTestManager(t)
 	addTypicalObjects(r)
 
-	results, err := m.BrowseCategory("")
+	results, _, err := m.BrowseCategory("")
 	if err != nil || len(results) != 2 {
 		t.Fatalf("BrowseCategory = %+v, %v", results, err)
 	}
@@ -400,9 +552,9 @@ func TestIndexUnavailableIsAnErrorNotAHang(t *testing.T) {
 	done := make(chan []error, 1)
 	go func() {
 		_, getErr := m.GetObject("2811")
-		_, searchErr := m.Search("serial", "", "", 10)
-		_, catErr := m.GetCategories()
-		_, browseErr := m.BrowseCategory("")
+		_, _, searchErr := m.Search("serial", "", "", 10)
+		_, _, catErr := m.GetCategories()
+		_, _, browseErr := m.BrowseCategory("")
 		done <- []error{getErr, searchErr, catErr, browseErr}
 	}()
 

@@ -115,6 +115,7 @@ type Manager struct {
 	mu               sync.RWMutex
 	parsed           map[string]parsedObject // by object ID
 	lastErrorRefresh time.Time               // Tracks last refresh-on-error attempt to prevent refresh storms
+	warned           map[string]string       // object ID -> body version already warned about, under mu
 }
 
 // parsedObject is a parsed object and the version of its file it was parsed from.
@@ -141,6 +142,7 @@ func NewManager(idx *index.Manager, c *cache.Manager) *Manager {
 		cache:      c,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		parsed:     make(map[string]parsedObject),
+		warned:     make(map[string]string),
 	}
 }
 
@@ -235,17 +237,59 @@ func (m *Manager) getObject(of objectFile) (*OBEXObject, error) {
 
 	content, err := m.cache.GetOrFetch(of.key, of.file.Path, of.file.SHA256, of.file.Mtime)
 	if err != nil {
+		err = fmt.Errorf("failed to read OBEX object %s: %w", id, err)
+		m.warnUnreadable(id, version, err)
 		return nil, err
 	}
 	obj := &OBEXObject{}
 	if err := yaml.Unmarshal([]byte(content), obj); err != nil {
-		return nil, fmt.Errorf("failed to parse OBEX object %s: %w", id, err)
+		err = fmt.Errorf("failed to parse OBEX object %s: %w", id, err)
+		m.warnUnreadable(id, version, err)
+		return nil, err
 	}
 
 	m.mu.Lock()
 	m.parsed[id] = parsedObject{version: version, obj: obj}
 	m.mu.Unlock()
 	return obj, nil
+}
+
+// Unreadable names an object whose body could not be read or parsed, and why.
+type Unreadable struct {
+	ObjectID string `json:"object_id"`
+	Error    string `json:"error"`
+}
+
+// warnUnreadable logs an unreadable object once per body version, not once
+// per call. The memo is touched in a short critical section; the log write
+// happens after the lock is released.
+func (m *Manager) warnUnreadable(id, version string, err error) {
+	m.mu.Lock()
+	seen := m.warned[id] == version
+	m.warned[id] = version
+	m.mu.Unlock()
+	if !seen {
+		logging.Warnf("p2kb-mcp: warning: OBEX object %s is unreadable and left out of results: %v", id, err)
+	}
+}
+
+// readObjects is the one walk over the object list: it returns the objects
+// that read and parse, in ID order, and those that do not. Any failure of one
+// object's body (read, verify or parse) is reported, never dropped. A failure
+// of the object list itself is the caller's, before this walk.
+func (m *Manager) readObjects(objects map[string]objectFile) ([]*OBEXObject, []Unreadable) {
+	ids := sortedIDs(objects)
+	readable := make([]*OBEXObject, 0, len(ids))
+	var unreadable []Unreadable
+	for _, id := range ids {
+		obj, err := m.getObject(objects[id])
+		if err != nil {
+			unreadable = append(unreadable, Unreadable{ObjectID: id, Error: err.Error()})
+			continue
+		}
+		readable = append(readable, obj)
+	}
+	return readable, unreadable
 }
 
 // tryErrorRefresh attempts to refresh the index if the error cooldown has passed.
@@ -276,15 +320,16 @@ func (m *Manager) tryErrorRefresh() bool {
 	return true
 }
 
-// Search searches OBEX objects by term.
-func (m *Manager) Search(term string, category string, language string, limit int) ([]SearchResult, error) {
+// Search searches OBEX objects by term, and returns the objects that could not
+// be read, whether or not they could have matched.
+func (m *Manager) Search(term string, category string, language string, limit int) ([]SearchResult, []Unreadable, error) {
 	objects, err := m.objectFiles()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if term == "" {
-		return nil, fmt.Errorf("search term required")
+		return nil, nil, fmt.Errorf("search term required")
 	}
 
 	if limit <= 0 {
@@ -294,13 +339,10 @@ func (m *Manager) Search(term string, category string, language string, limit in
 	// Expand search terms
 	searchTerms := expandSearchTerms(strings.ToLower(term))
 
-	var results []SearchResult
-	for _, objID := range sortedIDs(objects) {
-		obj, err := m.getObject(objects[objID])
-		if err != nil {
-			continue
-		}
+	all, unreadable := m.readObjects(objects)
 
+	var results []SearchResult
+	for _, obj := range all {
 		// Apply filters
 		if category != "" && !obj.ObjectMetadata.Functionality.Category.Has(category) {
 			continue
@@ -337,23 +379,20 @@ func (m *Manager) Search(term string, category string, language string, limit in
 		}
 	}
 
-	return results, nil
+	return results, unreadable, nil
 }
 
-// GetCategories returns OBEX categories with counts.
-func (m *Manager) GetCategories() (map[string]int, error) {
+// GetCategories returns OBEX categories with counts, and the objects that
+// could not be read (which the counts exclude).
+func (m *Manager) GetCategories() (map[string]int, []Unreadable, error) {
 	objects, err := m.objectFiles()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	all, unreadable := m.readObjects(objects)
 
 	categories := make(map[string]int)
-	for _, objID := range sortedIDs(objects) {
-		obj, err := m.getObject(objects[objID])
-		if err != nil {
-			continue
-		}
-
+	for _, obj := range all {
 		names := obj.ObjectMetadata.Functionality.Category.values
 		if len(names) == 0 {
 			names = []string{"uncategorized"}
@@ -363,23 +402,20 @@ func (m *Manager) GetCategories() (map[string]int, error) {
 		}
 	}
 
-	return categories, nil
+	return categories, unreadable, nil
 }
 
-// BrowseCategory returns objects in a category.
-func (m *Manager) BrowseCategory(category string) ([]SearchResult, error) {
+// BrowseCategory returns objects in a category, and the objects that could not
+// be read.
+func (m *Manager) BrowseCategory(category string) ([]SearchResult, []Unreadable, error) {
 	objects, err := m.objectFiles()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	all, unreadable := m.readObjects(objects)
 
 	var results []SearchResult
-	for _, objID := range sortedIDs(objects) {
-		obj, err := m.getObject(objects[objID])
-		if err != nil {
-			continue
-		}
-
+	for _, obj := range all {
 		if category != "" && !obj.ObjectMetadata.Functionality.Category.Has(category) {
 			continue
 		}
@@ -393,23 +429,20 @@ func (m *Manager) BrowseCategory(category string) ([]SearchResult, error) {
 		})
 	}
 
-	return results, nil
+	return results, unreadable, nil
 }
 
-// GetAuthors returns authors sorted by object count.
-func (m *Manager) GetAuthors() ([]AuthorStats, error) {
+// GetAuthors returns authors sorted by object count, and the objects that
+// could not be read (which the counts exclude).
+func (m *Manager) GetAuthors() ([]AuthorStats, []Unreadable, error) {
 	objects, err := m.objectFiles()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	all, unreadable := m.readObjects(objects)
 
 	authorCounts := make(map[string]int)
-	for _, objID := range sortedIDs(objects) {
-		obj, err := m.getObject(objects[objID])
-		if err != nil {
-			continue
-		}
-
+	for _, obj := range all {
 		author := obj.ObjectMetadata.Author
 		if author == "" {
 			author = "Unknown"
@@ -434,7 +467,17 @@ func (m *Manager) GetAuthors() ([]AuthorStats, error) {
 		return authors[i].Name < authors[j].Name
 	})
 
-	return authors, nil
+	return authors, unreadable, nil
+}
+
+// UnreadableObjects lists the objects whose body cannot be read or parsed.
+func (m *Manager) UnreadableObjects() ([]Unreadable, error) {
+	objects, err := m.objectFiles()
+	if err != nil {
+		return nil, err
+	}
+	_, unreadable := m.readObjects(objects)
+	return unreadable, nil
 }
 
 // GetTotalObjects returns the total number of OBEX objects.

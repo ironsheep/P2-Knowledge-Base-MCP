@@ -4,10 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
@@ -1128,6 +1130,118 @@ func TestOBEXGetIndexUnavailableIsAnError(t *testing.T) {
 	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"2811"}`))
 	if resp.Error == nil {
 		t.Errorf("handleOBEXGet result = %v, want an error", resp.Result)
+	}
+}
+
+// TestVersionUnreadableCountUnknownIsNotZero: with no readable index the
+// unreadable count is unknown, so p2kb_version reports null and the error.
+func TestVersionUnreadableCountUnknownIsNotZero(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.Close()
+
+	obexSection, ok := versionResult(t, srv)["obex"].(map[string]interface{})
+	if !ok {
+		t.Fatal("p2kb_version has no obex section")
+	}
+	if got, present := obexSection["unreadable_objects"]; !present || got != nil {
+		t.Errorf("unreadable_objects = %v (present %v), want null", got, present)
+	}
+	if obexSection["unreadable_objects_error"] == nil {
+		t.Error("unreadable_objects_error missing when the index cannot be read")
+	}
+}
+
+// obexResults runs every OBEX handler that can list objects, returning each
+// decoded result by name. Every call must succeed.
+func obexResults(t *testing.T, srv *Server) map[string]map[string]interface{} {
+	t.Helper()
+	calls := map[string]*MCPResponse{
+		"overview":    srv.handleOBEXFind(1, json.RawMessage(`{}`)),
+		"search":      srv.handleOBEXFind(1, json.RawMessage(`{"term":"a"}`)),
+		"browse":      srv.handleOBEXFind(1, json.RawMessage(`{"category":"protocol"}`)),
+		"author":      srv.handleOBEXFind(1, json.RawMessage(`{"author":"a"}`)),
+		"suggestions": srv.handleOBEXGet(1, json.RawMessage(`{"query":"a"}`)),
+		"no_matches":  srv.handleOBEXGet(1, json.RawMessage(`{"query":"zzzqqq"}`)),
+	}
+	out := make(map[string]map[string]interface{}, len(calls))
+	for name, resp := range calls {
+		if resp.Error != nil {
+			t.Fatalf("%s: %v", name, resp.Error)
+		}
+		out[name] = extractResultMap(t, resp)
+	}
+	if out["suggestions"]["type"] != "suggestions" || out["no_matches"]["type"] != "no_matches" {
+		t.Fatalf("obex_get types = %v, %v; want suggestions, no_matches", out["suggestions"]["type"], out["no_matches"]["type"])
+	}
+	return out
+}
+
+// TestOBEXUnreadableObjectsAreReported: a healthy KB has no unreadable_objects
+// key anywhere and p2kb_version counts 0; with the malformed 9990 among good
+// objects every result lists it, the good objects still come back, and
+// p2kb_version counts 1.
+func TestOBEXUnreadableObjectsAreReported(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+
+	for name, res := range obexResults(t, srv) {
+		if _, present := res["unreadable_objects"]; present {
+			t.Errorf("healthy %s result has an unreadable_objects key: %v", name, res)
+		}
+	}
+	obexSection := func() map[string]interface{} {
+		section, _ := versionResult(t, srv)["obex"].(map[string]interface{})
+		return section
+	}
+	if got := obexSection()["unreadable_objects"]; got != float64(0) {
+		t.Errorf("healthy p2kb_version unreadable_objects = %v, want 0", got)
+	}
+
+	r.AddOBEX(kbtest.OBEXMalformedID)
+	if err := srv.indexManager.Refresh(); err != nil { // the healthy calls above loaded the index
+		t.Fatal(err)
+	}
+
+	results := obexResults(t, srv)
+	for name, res := range results {
+		bad, ok := res["unreadable_objects"].([]interface{})
+		if !ok || len(bad) != 1 {
+			t.Errorf("%s: unreadable_objects = %v, want one entry for 9990", name, res["unreadable_objects"])
+			continue
+		}
+		entry, _ := bad[0].(map[string]interface{})
+		if entry["object_id"] != "9990" || entry["error"] == nil || entry["error"] == "" {
+			t.Errorf("%s: unreadable entry = %v, want object_id 9990 and an error", name, entry)
+		}
+	}
+	if got := results["search"]["count"]; got != float64(2) {
+		t.Errorf("search count = %v, want the 2 good objects", got)
+	}
+	if cats, _ := results["overview"]["categories"].(map[string]interface{}); cats["Protocol"] != float64(2) {
+		t.Errorf("overview categories = %v, want 9990 excluded (Protocol 2)", cats)
+	}
+	if got := obexSection()["unreadable_objects"]; got != float64(1) {
+		t.Errorf("p2kb_version unreadable_objects = %v, want 1", got)
+	}
+}
+
+// TestOBEXGetUnparseableObjectIsAnError: p2kb_obex_get on the malformed object
+// returns an error naming it, not the object_not_found result.
+func TestOBEXGetUnparseableObjectIsAnError(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXMalformedID)
+
+	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"9990"}`))
+	if resp.Error == nil {
+		t.Fatalf("handleOBEXGet(9990) = %v, want an error", resp.Result)
+	}
+	if resp.Result != nil {
+		t.Errorf("handleOBEXGet(9990) has a result (object_not_found shape?): %v", resp.Result)
+	}
+	if text := fmt.Sprint(resp.Error.Message, " ", resp.Error.Data); !strings.Contains(text, "9990") {
+		t.Errorf("error %q does not name 9990", text)
 	}
 }
 

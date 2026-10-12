@@ -270,18 +270,18 @@ func (s *Server) handleOBEXGet(id interface{}, args json.RawMessage) *MCPRespons
 	}
 
 	// Search for matching objects
-	results, err := s.obexManager.Search(params.Query, "", "", 10)
+	results, unreadable, err := s.obexManager.Search(params.Query, "", "", 10)
 	if err != nil {
 		return s.errorResponse(id, -32000, "OBEX search failed", err.Error())
 	}
 
 	if len(results) == 0 {
-		return s.successResponse(id, map[string]interface{}{
+		return s.successResponse(id, withUnreadable(map[string]interface{}{
 			"type":    "no_matches",
 			"query":   params.Query,
 			"message": "No OBEX objects found matching this query",
 			"hint":    "Try using p2kb_obex_find to explore available objects",
-		})
+		}, unreadable))
 	}
 
 	// Single result - return full object info
@@ -302,12 +302,21 @@ func (s *Server) handleOBEXGet(id interface{}, args json.RawMessage) *MCPRespons
 		})
 	}
 
-	return s.successResponse(id, map[string]interface{}{
+	return s.successResponse(id, withUnreadable(map[string]interface{}{
 		"type":        "suggestions",
 		"query":       params.Query,
 		"message":     "Multiple OBEX objects found. Specify an object_id or refine your search.",
 		"suggestions": suggestions,
-	})
+	}, unreadable))
+}
+
+// withUnreadable adds the objects that could not be read to an OBEX result,
+// only when there are any, so a healthy result keeps its shape.
+func withUnreadable(result map[string]interface{}, unreadable []obex.Unreadable) map[string]interface{} {
+	if len(unreadable) > 0 {
+		result["unreadable_objects"] = unreadable
+	}
+	return result
 }
 
 // getOBEXObject returns full OBEX object info with download instructions.
@@ -371,30 +380,30 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 
 	// No parameters - list categories
 	if params.Term == "" && params.Category == "" && params.Author == "" {
-		categories, err := s.obexManager.GetCategories()
+		categories, unreadable, err := s.obexManager.GetCategories()
 		if err != nil {
 			return s.errorResponse(id, -32000, "Failed to get OBEX categories", err.Error())
 		}
 
-		// Also get top authors
-		authors, _ := s.obexManager.GetAuthors()
+		// Also get top authors (the same objects are unreadable)
+		authors, _, _ := s.obexManager.GetAuthors()
 		topAuthors := authors
 		if len(topAuthors) > 5 {
 			topAuthors = topAuthors[:5]
 		}
 
-		return s.successResponse(id, map[string]interface{}{
+		return s.successResponse(id, withUnreadable(map[string]interface{}{
 			"type":          "overview",
 			"categories":    categories,
 			"total_objects": s.obexManager.GetTotalObjects(),
 			"top_authors":   topAuthors,
-		})
+		}, unreadable))
 	}
 
 	// Author filter
 	if params.Author != "" && params.Term == "" && params.Category == "" {
 		// Get all objects and filter by author
-		objects, err := s.obexManager.BrowseCategory("")
+		objects, unreadable, err := s.obexManager.BrowseCategory("")
 		if err != nil {
 			return s.errorResponse(id, -32000, "Failed to browse OBEX", err.Error())
 		}
@@ -415,17 +424,17 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 			}
 		}
 
-		return s.successResponse(id, map[string]interface{}{
+		return s.successResponse(id, withUnreadable(map[string]interface{}{
 			"type":    "objects",
 			"author":  params.Author,
 			"objects": filtered,
 			"count":   len(filtered),
-		})
+		}, unreadable))
 	}
 
 	// Search or browse
 	if params.Term != "" {
-		results, err := s.obexManager.Search(params.Term, params.Category, "", params.Limit)
+		results, unreadable, err := s.obexManager.Search(params.Term, params.Category, "", params.Limit)
 		if err != nil {
 			return s.errorResponse(id, -32000, "OBEX search failed", err.Error())
 		}
@@ -442,17 +451,17 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 			})
 		}
 
-		return s.successResponse(id, map[string]interface{}{
+		return s.successResponse(id, withUnreadable(map[string]interface{}{
 			"type":    "objects",
 			"term":    params.Term,
 			"objects": objects,
 			"count":   len(objects),
-		})
+		}, unreadable))
 	}
 
 	// Category browse
 	if params.Category != "" {
-		objects, err := s.obexManager.BrowseCategory(params.Category)
+		objects, unreadable, err := s.obexManager.BrowseCategory(params.Category)
 		if err != nil {
 			return s.errorResponse(id, -32000, "Failed to browse category", err.Error())
 		}
@@ -471,12 +480,12 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 			})
 		}
 
-		return s.successResponse(id, map[string]interface{}{
+		return s.successResponse(id, withUnreadable(map[string]interface{}{
 			"type":     "objects",
 			"category": params.Category,
 			"objects":  result,
 			"count":    len(result),
-		})
+		}, unreadable))
 	}
 
 	// Shouldn't reach here
@@ -523,8 +532,22 @@ func (s *Server) handleOBEXDownload(id interface{}, args json.RawMessage) *MCPRe
 func (s *Server) handleVersion(id interface{}) *MCPResponse {
 	stats := s.indexManager.GetStats()
 	indexStatus := s.indexManager.GetIndexStatus()
+	// Walk the objects before reading the cache stats, so parsed and
+	// unreadable describe the same moment.
+	obexUnreadable, obexUnreadableErr := s.obexManager.UnreadableObjects()
 	obexParsed, obexCached := s.obexManager.GetCacheStats()
 	filterStatus := s.indexManager.FilterStatus()
+	obexSection := map[string]interface{}{
+		"total_objects":      s.obexManager.GetTotalObjects(),
+		"parsed_objects":     obexParsed,
+		"cached_bodies":      obexCached,
+		"unreadable_objects": len(obexUnreadable),
+	}
+	if obexUnreadableErr != nil {
+		// The count is unknown, not zero.
+		obexSection["unreadable_objects"] = nil
+		obexSection["unreadable_objects_error"] = obexUnreadableErr.Error()
+	}
 
 	result := map[string]interface{}{
 		"mcp_version":   s.version,
@@ -542,11 +565,7 @@ func (s *Server) handleVersion(id interface{}) *MCPResponse {
 			"age_seconds":      indexStatus.AgeSeconds,
 			"needs_refresh":    indexStatus.NeedsRefresh,
 		},
-		"obex": map[string]interface{}{
-			"total_objects":  s.obexManager.GetTotalObjects(),
-			"parsed_objects": obexParsed,
-			"cached_bodies":  obexCached,
-		},
+		"obex": obexSection,
 	}
 	if refused := filterStatus.Refused; refused != nil {
 		result["filter_rule_refused"] = map[string]interface{}{

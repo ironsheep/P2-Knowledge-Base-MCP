@@ -27,7 +27,7 @@ func TestConcurrentReadsAndClears(t *testing.T) {
 				t.Errorf("GetObjectIDs = %v", ids)
 			}
 		}()
-		go func() { defer wg.Done(); _, _ = m.Search("motor", "", "", 10) }()
+		go func() { defer wg.Done(); _, _, _ = m.Search("motor", "", "", 10) }()
 		go func() { defer wg.Done(); _ = m.GetTotalObjects() }()
 		go func() { defer wg.Done(); _ = m.ClearCache() }()
 		go func() { defer wg.Done(); _, _ = m.GetCacheStats() }()
