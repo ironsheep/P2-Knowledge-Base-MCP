@@ -104,7 +104,7 @@ With author: lists objects by that author.`,
 					},
 					"category": map[string]interface{}{
 						"type":        "string",
-						"description": "Category filter: drivers, misc, display, demos, audio, motors, communication, sensors, tools",
+						"description": "An OBEX category — call with no parameters for the current list with counts.",
 					},
 					"author": map[string]interface{}{
 						"type":        "string",

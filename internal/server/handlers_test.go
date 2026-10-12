@@ -558,6 +558,126 @@ func TestHandleOBEXFindWithAuthor(t *testing.T) {
 	}
 }
 
+// findOBEX runs p2kb_obex_find with the given arguments and decodes the result.
+func findOBEX(t *testing.T, srv *Server, args string) map[string]interface{} {
+	t.Helper()
+	resp := srv.handleOBEXFind(1, json.RawMessage(args))
+	if resp.Error != nil {
+		t.Fatalf("handleOBEXFind(%s): %v", args, resp.Error)
+	}
+	return extractResultMap(t, resp)
+}
+
+// findIDs returns the sorted object_id of each object in a find result.
+func findIDs(t *testing.T, res map[string]interface{}) []string {
+	t.Helper()
+	objs, _ := res["objects"].([]interface{})
+	ids := make([]string, 0, len(objs))
+	for _, o := range objs {
+		entry, _ := o.(map[string]interface{})
+		id, _ := entry["object_id"].(string)
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// sortedKeys returns the keys of m, sorted.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// TestOBEXFindOverviewCountsEachCategoryElement: a list category contributes one
+// count per element; a string category contributes its one name.
+func TestOBEXFindOverviewCountsEachCategoryElement(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)   // [Math, Motor Control, Protocol, Snippet]
+	r.AddOBEX(kbtest.OBEXStringCategoryID) // Protocol
+	r.AddOBEX(kbtest.OBEXNoDownloadID)     // [Display, Other, Protocol]
+
+	got := findOBEX(t, srv, `{}`)
+	if got["type"] != "overview" {
+		t.Fatalf("type = %v, want overview", got["type"])
+	}
+	want := map[string]interface{}{
+		"Math": float64(1), "Motor Control": float64(1), "Protocol": float64(3),
+		"Snippet": float64(1), "Display": float64(1), "Other": float64(1),
+	}
+	if !reflect.DeepEqual(got["categories"], want) {
+		t.Errorf("categories = %v, want %v", got["categories"], want)
+	}
+}
+
+// TestOBEXFindCategoryMatchesWhenAnElementIsTheName: category Protocol returns
+// every object whose category is or includes Protocol. The string-category
+// object 2842 alone does not prove this; 2811 and 4581 hold Protocol as one
+// element of a list, so a whole-string comparison ("Math, Motor Control,
+// Protocol, Snippet" equal to "Protocol") would drop them and fail this test.
+func TestOBEXFindCategoryMatchesWhenAnElementIsTheName(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
+
+	wantProtocol := []string{"2811", "2842", "4581"}
+	for _, args := range []string{`{"category":"Protocol"}`, `{"category":"protocol"}`} {
+		got := findOBEX(t, srv, args)
+		if got["type"] != "objects" || got["count"] != float64(3) {
+			t.Errorf("%s: type = %v, count = %v, want objects, 3", args, got["type"], got["count"])
+		}
+		if ids := findIDs(t, got); !reflect.DeepEqual(ids, wantProtocol) {
+			t.Errorf("%s: object ids = %v, want %v", args, ids, wantProtocol)
+		}
+	}
+
+	// An element that only the list object carries.
+	if ids := findIDs(t, findOBEX(t, srv, `{"category":"Motor Control"}`)); !reflect.DeepEqual(ids, []string{"2811"}) {
+		t.Errorf("Motor Control object ids = %v, want [2811]", ids)
+	}
+
+	// A category no object has: an empty result, not an error.
+	got := findOBEX(t, srv, `{"category":"Nonexistent"}`)
+	if got["type"] != "objects" || got["count"] != float64(0) {
+		t.Errorf("Nonexistent: type = %v, count = %v, want objects, 0", got["type"], got["count"])
+	}
+	if objs, ok := got["objects"].([]interface{}); !ok || len(objs) != 0 {
+		t.Errorf("Nonexistent objects = %v, want an empty list", got["objects"])
+	}
+}
+
+// TestOBEXFindTermResultShape: term with limit keeps the 1.5.0 key sets exactly.
+func TestOBEXFindTermResultShape(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXStringCategoryID) // Full Duplex Serial
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
+
+	got := findOBEX(t, srv, `{"term":"serial","limit":2}`)
+	wantTop := []string{"count", "objects", "term", "type"}
+	if keys := sortedKeys(got); !reflect.DeepEqual(keys, wantTop) {
+		t.Errorf("top-level keys = %v, want %v", keys, wantTop)
+	}
+	if got["term"] != "serial" || got["type"] != "objects" {
+		t.Errorf("term = %v, type = %v, want serial, objects", got["term"], got["type"])
+	}
+	objs, _ := got["objects"].([]interface{})
+	if len(objs) == 0 || len(objs) > 2 || got["count"] != float64(len(objs)) {
+		t.Fatalf("objects = %d entries, count = %v, want 1 to 2 entries with a matching count", len(objs), got["count"])
+	}
+	wantObject := []string{"author", "category", "description", "match_type", "object_id", "title"}
+	for _, o := range objs {
+		entry, _ := o.(map[string]interface{})
+		if keys := sortedKeys(entry); !reflect.DeepEqual(keys, wantObject) {
+			t.Errorf("object keys = %v, want %v", keys, wantObject)
+		}
+	}
+}
+
 // Test p2kb_refresh
 
 func TestHandleRefresh(t *testing.T) {
