@@ -510,6 +510,18 @@ func (s *Server) handleOBEXDownload(id interface{}, args json.RawMessage) *MCPRe
 
 	// Perform download and extraction
 	result, err := s.obexManager.DownloadAndExtract(params.ObjectID, params.TargetDir)
+	var noDownload *obex.NoDownloadError
+	if errors.As(err, &noDownload) {
+		// A fact about the object, not a fault: answer with a success result.
+		return s.successResponse(id, map[string]interface{}{
+			"type":      "no_download",
+			"object_id": noDownload.ObjectID,
+			"title":     noDownload.Title,
+			"obex_page": noDownload.OBEXPage,
+			"message": fmt.Sprintf("OBEX offers no download for object %s; see its page %s — the description says where the code is.",
+				noDownload.ObjectID, noDownload.OBEXPage),
+		})
+	}
 	if err != nil {
 		return s.errorResponse(id, -32000, "Download failed", map[string]interface{}{
 			"object_id": params.ObjectID,

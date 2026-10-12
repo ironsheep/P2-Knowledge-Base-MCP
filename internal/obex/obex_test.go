@@ -831,23 +831,134 @@ func TestExpandSearchTerms(t *testing.T) {
 	}
 }
 
-func TestGetDownloadURL(t *testing.T) {
-	m := &Manager{}
-
-	tests := []struct {
-		objectID string
-		expected string
-	}{
-		{"2811", "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811"},
-		{"OB2811", "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811"},
-		{"4047", "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB4047"},
+// chdirTemp moves the test into a temp working directory (download targets
+// must lie within it) and moves back on cleanup.
+func chdirTemp(t *testing.T) {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
 	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+}
 
-	for _, tt := range tests {
-		result := m.GetDownloadURL(tt.objectID)
-		if result != tt.expected {
-			t.Errorf("GetDownloadURL(%q) = %q, want %q", tt.objectID, result, tt.expected)
+// zipBytes builds a zip holding one file.
+func zipBytes(t *testing.T, name, content string) string {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
+
+// objectWithDownload is fixture 2811 with download_direct pointed at url.
+func objectWithDownload(t *testing.T, url string) string {
+	t.Helper()
+	const orig = "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811"
+	body := kbtest.OBEXObject(kbtest.OBEXListCategoryID)
+	if !strings.Contains(body, orig) {
+		t.Fatal("fixture 2811 no longer carries the expected download_direct")
+	}
+	return strings.Replace(body, orig, url, 1)
+}
+
+func TestDownloadAndExtractUsesDownloadDirect(t *testing.T) {
+	chdirTemp(t)
+	m, r := newTestManager(t)
+	addObject(r, "2811", objectWithDownload(t, r.URL()+"/dl/park.zip"))
+	r.Put("dl/park.zip", zipBytes(t, "park.spin2", "' park"))
+
+	res, err := m.DownloadAndExtract("2811", "")
+	if err != nil {
+		t.Fatalf("DownloadAndExtract: %v", err)
+	}
+	if got := r.Hits("dl/park.zip"); got != 1 {
+		t.Errorf("download host saw %d requests, want 1", got)
+	}
+	if len(res.Files) != 1 || res.Files[0] != "park.spin2" {
+		t.Errorf("files = %v", res.Files)
+	}
+	if _, err := os.Stat(filepath.Join("OBEX", "2811-park-transformation", "park.spin2")); err != nil {
+		t.Errorf("extracted file missing: %v", err)
+	}
+}
+
+func TestDownloadAndExtractNoDownloadDirect(t *testing.T) {
+	chdirTemp(t)
+	m, r := newTestManager(t)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
+	// The host is up and would serve a zip at every path an id-built or
+	// guessed URL could use; the object simply offers no download.
+	r.Put("dl/4581.zip", zipBytes(t, "x.spin2", "x"))
+	r.Put("wp-admin/admin-ajax.php", zipBytes(t, "x.spin2", "x"))
+	target := filepath.Join("OBEX", "no-dl-target")
+
+	res, err := m.DownloadAndExtract("4581", target)
+	if res != nil {
+		t.Errorf("result = %+v, want nil", res)
+	}
+	if !errors.Is(err, ErrNoDownload) {
+		t.Fatalf("err = %v, want ErrNoDownload", err)
+	}
+	var nd *NoDownloadError
+	if !errors.As(err, &nd) {
+		t.Fatalf("err %T is not *NoDownloadError", err)
+	}
+	if nd.ObjectID != "4581" || nd.OBEXPage != "https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/" {
+		t.Errorf("carried id %q page %q", nd.ObjectID, nd.OBEXPage)
+	}
+	for _, p := range []string{"dl/4581.zip", "wp-admin/admin-ajax.php"} {
+		if got := r.Hits(p); got != 0 {
+			t.Errorf("download host saw %d requests at %s, want 0", got, p)
 		}
+	}
+	for _, d := range []string{target, "OBEX"} {
+		if _, err := os.Stat(d); !os.IsNotExist(err) {
+			t.Errorf("%s exists after no-download (stat err %v)", d, err)
+		}
+	}
+}
+
+func TestDownloadAndExtractUnknownID(t *testing.T) {
+	chdirTemp(t)
+	m, r := newTestManager(t)
+	addTypicalObjects(r)
+	_, err := m.DownloadAndExtract("9999", "")
+	if err == nil || errors.Is(err, ErrNoDownload) {
+		t.Fatalf("err = %v, want a not-found error", err)
+	}
+	if !errors.Is(err, ErrObjectNotFound) {
+		t.Errorf("err = %v, want ErrObjectNotFound", err)
+	}
+}
+
+func TestDownloadAndExtractNon200(t *testing.T) {
+	chdirTemp(t)
+	m, r := newTestManager(t)
+	// Nothing is Put at dl/missing.zip, so the host answers 404.
+	addObject(r, "2811", objectWithDownload(t, r.URL()+"/dl/missing.zip"))
+
+	_, err := m.DownloadAndExtract("2811", "")
+	if err == nil || errors.Is(err, ErrNoDownload) {
+		t.Fatalf("err = %v, want a download failure", err)
+	}
+	if !strings.Contains(err.Error(), "HTTP 404") {
+		t.Errorf("err = %v, want HTTP 404", err)
+	}
+	if got := r.Hits("dl/missing.zip"); got != 1 {
+		t.Errorf("download host saw %d requests, want 1", got)
 	}
 }
 

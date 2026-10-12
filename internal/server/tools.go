@@ -126,7 +126,8 @@ With author: lists objects by that author.`,
 
 Download and extract an OBEX object to the local OBEX folder.
 
-Downloads the zip file from Parallax OBEX and extracts it to a subdirectory.
+Downloads the zip file from the object's own download link (urls.download_direct)
+and extracts it to a subdirectory.
 Default target is "./OBEX/{objectID}-{slug}/" relative to the working directory.
 
 Use this tool AFTER using p2kb_obex_get or p2kb_obex_find to identify the object you want.
@@ -136,7 +137,12 @@ Returns:
 - files: List of extracted filenames
 - total_size: Combined size of extracted files in bytes
 
-Example: Download object 2811 "WS2812 LED Driver" -> extracts to ./OBEX/2811-ws2812-led-driver/`,
+Some objects have no download on OBEX. For those nothing is fetched and no
+directory is created; the result is type "no_download" (not an error) with the
+object's obex_page and a message pointing at it — the object's description says
+where the code is.
+
+Example: Download object 2811 "Park transformation" -> extracts to ./OBEX/2811-park-transformation/`,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -980,6 +982,83 @@ func TestHandleOBEXDownloadWithOBPrefix(t *testing.T) {
 		// Should NOT be a "missing parameter" error
 		if resp.Error.Code == -32602 {
 			t.Error("OB prefix should be accepted")
+		}
+	}
+}
+
+// downloadResponse calls p2kb_obex_download and returns the response.
+func downloadResponse(t *testing.T, srv *Server, args map[string]interface{}) *MCPResponse {
+	t.Helper()
+	params, _ := json.Marshal(map[string]interface{}{"name": "p2kb_obex_download", "arguments": args})
+	return srv.handleRequest(&MCPRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
+}
+
+func TestHandleOBEXDownloadNoDownload(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
+	r.Put("wp-admin/admin-ajax.php", "must not be fetched")
+
+	resp := downloadResponse(t, srv, map[string]interface{}{"object_id": "OB4581"})
+	if resp.Error != nil {
+		t.Fatalf("no download must be a success result, got error %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "no_download" {
+		t.Errorf("type = %v, want no_download", got["type"])
+	}
+	if got["object_id"] != "4581" || got["title"] != "ISP P2 RPi IoT Gateway" ||
+		got["obex_page"] != "https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/" {
+		t.Errorf("result = %v", got)
+	}
+	want := "OBEX offers no download for object 4581; see its page https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/ — the description says where the code is."
+	if got["message"] != want {
+		t.Errorf("message = %q, want %q", got["message"], want)
+	}
+	if n := r.Hits("wp-admin/admin-ajax.php"); n != 0 {
+		t.Errorf("download host saw %d requests, want 0", n)
+	}
+	if _, err := os.Stat("OBEX"); !os.IsNotExist(err) {
+		t.Errorf("OBEX directory exists after no-download (stat err %v)", err)
+	}
+}
+
+func TestHandleOBEXDownloadFromDownloadDirect(t *testing.T) {
+	srv, r := newTestServer(t)
+	body := strings.Replace(kbtest.OBEXObject(kbtest.OBEXListCategoryID),
+		"https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811",
+		r.URL()+"/dl/park.zip", 1)
+	r.AddFile("p2kbCommunity2811", kbtest.OBEXObjectsPath+"/2811.yaml", 1700000000, body)
+	zbuf := new(bytes.Buffer)
+	zw := zip.NewWriter(zbuf)
+	w, _ := zw.Create("park.spin2")
+	_, _ = w.Write([]byte("' park"))
+	_ = zw.Close()
+	r.Put("dl/park.zip", zbuf.String())
+
+	resp := downloadResponse(t, srv, map[string]interface{}{"object_id": "2811"})
+	if resp.Error != nil {
+		t.Fatalf("error: %+v", resp.Error)
+	}
+	got := extractResultMap(t, resp)
+	if got["type"] != "download_complete" || got["file_count"] != float64(1) {
+		t.Errorf("result = %v", got)
+	}
+	if n := r.Hits("dl/park.zip"); n != 1 {
+		t.Errorf("download host saw %d requests, want 1", n)
+	}
+}
+
+func TestHandleOBEXDownloadFailuresStayErrors(t *testing.T) {
+	srv, r := newTestServer(t)
+	body := strings.Replace(kbtest.OBEXObject(kbtest.OBEXListCategoryID),
+		"https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811",
+		r.URL()+"/dl/missing.zip", 1)
+	r.AddFile("p2kbCommunity2811", kbtest.OBEXObjectsPath+"/2811.yaml", 1700000000, body)
+
+	for _, id := range []string{"9999", "2811"} { // unknown id; host answers 404
+		resp := downloadResponse(t, srv, map[string]interface{}{"object_id": id})
+		if resp.Error == nil || resp.Error.Code != -32000 {
+			t.Errorf("id %s: want -32000 error, got %+v", id, resp)
 		}
 	}
 }

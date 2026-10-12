@@ -36,9 +36,6 @@ const (
 	// templateFile is the object template, listed in the index but not an object.
 	templateFile = "_template.yaml"
 
-	// OBEXDownloadBase is the base URL for OBEX downloads.
-	OBEXDownloadBase = "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB"
-
 	// ErrorRefreshCooldown is the minimum time between refresh-on-error attempts.
 	// This prevents excessive refresh attempts when objects are genuinely not found.
 	ErrorRefreshCooldown = 5 * time.Minute
@@ -586,14 +583,29 @@ func (m *Manager) GetTotalObjects() int {
 	return len(objects)
 }
 
-// GetDownloadURL returns the download URL for an object.
-func (m *Manager) GetDownloadURL(objectID string) string {
-	objectID = normalizeObjectID(objectID)
-	return OBEXDownloadBase + objectID
+// NoDownloadError is returned by DownloadAndExtract when OBEX offers no
+// download for the object (its urls.download_direct is absent). Match it with
+// errors.As; ErrNoDownload is the sentinel it unwraps to.
+type NoDownloadError struct {
+	ObjectID string
+	Title    string
+	OBEXPage string
 }
 
-// DownloadAndExtract downloads an OBEX object zip and extracts it to the target directory.
-// If targetDir is empty, it defaults to "./OBX/{object-slug}/".
+// ErrNoDownload is the sentinel for an object that has no download.
+var ErrNoDownload = errors.New("OBEX offers no download for this object")
+
+func (e *NoDownloadError) Error() string {
+	return fmt.Sprintf("OBEX offers no download for object %s (page %s)", e.ObjectID, e.OBEXPage)
+}
+
+// Unwrap lets errors.Is(err, ErrNoDownload) match.
+func (e *NoDownloadError) Unwrap() error { return ErrNoDownload }
+
+// DownloadAndExtract downloads an OBEX object zip from the object's
+// urls.download_direct and extracts it to the target directory. If the object
+// has no download_direct it fetches nothing, creates nothing and returns a
+// *NoDownloadError. If targetDir is empty, it defaults to "OBEX/{id}-{slug}".
 // Returns information about the extracted files.
 func (m *Manager) DownloadAndExtract(objectID, targetDir string) (*DownloadResult, error) {
 	objectID = normalizeObjectID(objectID)
@@ -602,6 +614,15 @@ func (m *Manager) DownloadAndExtract(objectID, targetDir string) (*DownloadResul
 	obj, err := m.GetObject(objectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get object metadata: %w", err)
+	}
+
+	downloadURL := strings.TrimSpace(obj.ObjectMetadata.URLs.DownloadDirect)
+	if downloadURL == "" {
+		return nil, &NoDownloadError{
+			ObjectID: objectID,
+			Title:    obj.ObjectMetadata.Title,
+			OBEXPage: obj.ObjectMetadata.URLs.OBEXPage,
+		}
 	}
 
 	// Generate slug from title
@@ -627,7 +648,6 @@ func (m *Manager) DownloadAndExtract(objectID, targetDir string) (*DownloadResul
 	}
 
 	// Download the zip file
-	downloadURL := m.GetDownloadURL(objectID)
 	zipData, err := m.downloadZip(downloadURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download zip: %w", err)
