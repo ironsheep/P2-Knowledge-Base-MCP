@@ -49,43 +49,28 @@ var ErrObjectNotFound = errors.New("OBEX object not found")
 
 // ObjectMetadata represents the object_metadata section of an OBEX YAML file.
 type ObjectMetadata struct {
-	ObjectID       string `yaml:"object_id"`
-	Title          string `yaml:"title"`
-	Author         string `yaml:"author"`
-	AuthorUsername string `yaml:"author_username"`
+	ObjectID string `yaml:"object_id"`
+	Title    string `yaml:"title"`
+	Author   string `yaml:"author"`
 
 	URLs struct {
-		OBEXPage        string `yaml:"obex_page"`
-		DownloadDirect  string `yaml:"download_direct"`
-		ForumDiscussion string `yaml:"forum_discussion"`
-		GithubRepo      string `yaml:"github_repo"`
-		Documentation   string `yaml:"documentation"`
+		OBEXPage       string `yaml:"obex_page"`
+		DownloadDirect string `yaml:"download_direct"`
 	} `yaml:"urls"`
 
 	TechnicalDetails struct {
-		Languages       []string `yaml:"languages"`
-		Microcontroller []string `yaml:"microcontroller"`
-		Version         string   `yaml:"version"`
-		FileFormat      string   `yaml:"file_format"`
-		FileSize        string   `yaml:"file_size"`
+		Languages []string `yaml:"languages"`
 	} `yaml:"technical_details"`
 
 	Functionality struct {
-		Category         string   `yaml:"category"`
-		Subcategory      string   `yaml:"subcategory"`
+		Category         Category `yaml:"category"`
 		DescriptionShort string   `yaml:"description_short"`
 		DescriptionFull  string   `yaml:"description_full"`
 		Tags             []string `yaml:"tags"`
-		HardwareSupport  []string `yaml:"hardware_support"`
-		Peripherals      []string `yaml:"peripherals"`
 	} `yaml:"functionality"`
 
 	Metadata struct {
-		DiscoveryDate    string `yaml:"discovery_date"`
-		LastVerified     string `yaml:"last_verified"`
-		ExtractionStatus string `yaml:"extraction_status"`
-		QualityScore     int    `yaml:"quality_score"`
-		CreatedDate      string `yaml:"created_date"`
+		CreatedDate string `yaml:"created_date"`
 	} `yaml:"metadata"`
 }
 
@@ -96,12 +81,12 @@ type OBEXObject struct {
 
 // SearchResult represents a search match.
 type SearchResult struct {
-	ObjectID         string `json:"object_id"`
-	Title            string `json:"title"`
-	Author           string `json:"author"`
-	Category         string `json:"category"`
-	DescriptionShort string `json:"description_short"`
-	MatchType        string `json:"match_type"`
+	ObjectID         string   `json:"object_id"`
+	Title            string   `json:"title"`
+	Author           string   `json:"author"`
+	Category         Category `json:"category"`
+	DescriptionShort string   `json:"description_short"`
+	MatchType        string   `json:"match_type"`
 }
 
 // AuthorStats tracks objects per author.
@@ -317,7 +302,7 @@ func (m *Manager) Search(term string, category string, language string, limit in
 		}
 
 		// Apply filters
-		if category != "" && !strings.EqualFold(obj.ObjectMetadata.Functionality.Category, category) {
+		if category != "" && !obj.ObjectMetadata.Functionality.Category.Has(category) {
 			continue
 		}
 
@@ -369,11 +354,13 @@ func (m *Manager) GetCategories() (map[string]int, error) {
 			continue
 		}
 
-		cat := obj.ObjectMetadata.Functionality.Category
-		if cat == "" {
-			cat = "uncategorized"
+		names := obj.ObjectMetadata.Functionality.Category.values
+		if len(names) == 0 {
+			names = []string{"uncategorized"}
 		}
-		categories[cat]++
+		for _, name := range names {
+			categories[name]++
+		}
 	}
 
 	return categories, nil
@@ -393,7 +380,7 @@ func (m *Manager) BrowseCategory(category string) ([]SearchResult, error) {
 			continue
 		}
 
-		if category != "" && !strings.EqualFold(obj.ObjectMetadata.Functionality.Category, category) {
+		if category != "" && !obj.ObjectMetadata.Functionality.Category.Has(category) {
 			continue
 		}
 

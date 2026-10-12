@@ -1,0 +1,26 @@
+object_metadata:
+  object_id: '2842'
+  title: Full Duplex Serial
+  author: Jon McPhalen
+  functionality:
+    category: Protocol
+    tags: []
+    description_short: P2 update to FullDuplexSerial for the P1, with numeric output
+      changes and string formatting for complex output.
+    description_full: This object is a P2 update to FullDuplexSerial for the P1. There
+      are minor changes and additions to the numeric output methods, and the inclusion
+      of string formatting for complex output as is available in other languages.
+  technical_details:
+    content_type:
+    - Code
+    microcontroller:
+    - P2
+    languages:
+    - PASM2
+    - SPIN2
+    licence: Other
+  metadata:
+    created_date: '2022-01-04'
+  urls:
+    obex_page: https://obex.parallax.com/obex/full-duplex-serial-2/
+    download_direct: https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2842

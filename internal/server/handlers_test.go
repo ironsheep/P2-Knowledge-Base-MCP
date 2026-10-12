@@ -516,7 +516,7 @@ func TestHandleOBEXFindWithCategory(t *testing.T) {
 	params, _ := json.Marshal(map[string]interface{}{
 		"name": "p2kb_obex_find",
 		"arguments": map[string]interface{}{
-			"category": "drivers",
+			"category": "Protocol",
 		},
 	})
 
@@ -1056,7 +1056,7 @@ func TestGetContentNetworkErrorMapsTo32000(t *testing.T) {
 // it must clear the OBEX disk cache, not just the content cache.
 func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
 	srv, r := newTestServer(t)
-	serveOBEXObject(r)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 
 	// Read one object, so it is parsed and its body cached.
 	if _, err := srv.obexManager.GetObject("2811"); err != nil {
@@ -1084,39 +1084,11 @@ func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
 	}
 }
 
-// obexObjectYAML is one OBEX object file, in the KB's shape.
-const obexObjectYAML = `object_metadata:
-  object_id: "2811"
-  title: "Park transformation"
-  author: "ManAtWork"
-  urls:
-    obex_page: "https://obex.parallax.com/obex/park-transformation/"
-  technical_details:
-    languages:
-      - SPIN2
-      - PASM2
-    file_size: "16 B"
-  functionality:
-    category: "motors"
-    description_short: "The Park or d/q-transformation"
-    tags:
-      - servo
-      - motor
-  metadata:
-    quality_score: 5
-    created_date: "2020-05-09 12:00:00"
-`
-
-// serveOBEXObject lists object 2811 in r's index and serves it.
-func serveOBEXObject(r *kbtest.Remote) {
-	r.AddFile("p2kbCommunity2811", "deliverables/ai/P2/community/obex/objects/2811.yaml", 1700000000, obexObjectYAML)
-}
-
 // TestOBEXGetResultShape pins p2kb_obex_get's result fields (captured from
 // the 1.4 server against the live KB before OBEX moved onto the main index).
 func TestOBEXGetResultShape(t *testing.T) {
 	srv, r := newTestServer(t)
-	serveOBEXObject(r)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 
 	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"2811"}`))
 	if resp.Error != nil {
@@ -1137,13 +1109,20 @@ func TestOBEXGetResultShape(t *testing.T) {
 	if got["type"] != "obex_object" || got["object_id"] != "2811" || got["title"] != "Park transformation" {
 		t.Errorf("result = %v", got)
 	}
+	// 2811's category is a list in the KB; the result keeps that form.
+	if cats, ok := got["category"].([]interface{}); !ok || len(cats) != 4 || cats[0] != "Math" {
+		t.Errorf("result category = %#v, want the 4-element list", got["category"])
+	}
+	if meta, _ := got["metadata"].(map[string]interface{}); !reflect.DeepEqual(meta, map[string]interface{}{"created_date": "2020-05-09"}) {
+		t.Errorf("result metadata = %v, want created_date only", got["metadata"])
+	}
 }
 
 // TestOBEXGetIndexUnavailableIsAnError: an unreachable index is reported as
 // an error, never as "object not found".
 func TestOBEXGetIndexUnavailableIsAnError(t *testing.T) {
 	srv, r := newTestServer(t)
-	serveOBEXObject(r)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 	r.Close()
 
 	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"2811"}`))

@@ -1,0 +1,19 @@
+# Deliberately malformed (not a live KB body): functionality.category is a
+# mapping where the KB's schema requires a string or a list of strings.
+object_metadata:
+  object_id: '9990'
+  title: Malformed Category Fixture
+  author: Test Author
+  functionality:
+    category:
+      name: Protocol
+    tags: []
+    description_short: Category is a mapping, so this body must fail to parse.
+    description_full: Category is a mapping, so this body must fail to parse.
+  technical_details:
+    languages:
+    - SPIN2
+  metadata:
+    created_date: '2000-01-01'
+  urls:
+    obex_page: https://obex.parallax.com/obex/malformed-category/

@@ -1,0 +1,45 @@
+object_metadata:
+  object_id: '2811'
+  title: Park transformation
+  author: ManAtWork
+  functionality:
+    category:
+    - Math
+    - Motor Control
+    - Protocol
+    - Snippet
+    tags:
+    - Servo
+    description_short: Code snippet showing how the P2 CORDIC does the Park (d/q)
+      transform and its inverse, for AC or brushless servo motors.
+    description_full: 'The Park or d/q-transformation is useful when controlling AC
+      motors or brushless servo motors. It transforms currents or voltages from a
+      three phase system with stator reference into a rectangular coordinate system
+      that is referenced to the rotor. The output can be treated as if the motor was
+      a DC machine. After calculations (PID control) are done the values are transformed
+      back to the three phase system using the inverse Park transformation. The results
+      can then be output to a three phase power stage.
+
+      This is a small code snippet that demonstrates how the P2 CORDIC unit can be
+      used for the Park transformation and its inverse. It uses 16 bit signed format
+      for all current and voltage values. This should be sufficient for most applications.
+      The CORDIC even could do full 32 bit resolution, only the scaling had to use
+      32 bit multiplication instead of the SCAS instructions. The angle (theta) has
+      to be left adjusted.
+
+
+      NOTE: This is a code snippet meant to illustrate the core code, it is not meant
+      to compile as-is; ex: variable declarations are needed.'
+  technical_details:
+    content_type:
+    - Code
+    microcontroller:
+    - P2
+    languages:
+    - PASM2
+    licence: Other
+  metadata:
+    created_date: '2020-05-09'
+  urls:
+    obex_page: https://obex.parallax.com/obex/park-transformation/
+    download_direct: https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811

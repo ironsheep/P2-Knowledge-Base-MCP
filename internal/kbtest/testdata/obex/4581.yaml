@@ -1,0 +1,86 @@
+object_metadata:
+  object_id: '4581'
+  title: ISP P2 RPi IoT Gateway
+  author: Stephen M Moraco
+  functionality:
+    category:
+    - Display
+    - Other
+    - Protocol
+    tags:
+    - email
+    - Gateway
+    - IoT
+    - Python
+    - Raspberry Pi
+    description_short: 'P2 object using a serial-linked Raspberry Pi as an IoT gateway:
+      email, web-page control, RPi files and config values.'
+    description_full: 'This provides a Spin2/Pasm2 object to be run on the P2. The
+      P2 communicates over high-speed bidirectional serial with a connected Raspberry
+      Pi (RPi), which runs a Python script that handles the requests from the P2.
+      These requests provide access to many services, providing a rich internet-of-things
+      (IoT) capability to our P2.
+
+
+      See the system diagram depicting how this all works: System Diagram (https://github.com/ironsheep/P2-RPi-IoT-gateway/tree/main#system-diagram)
+
+
+      Today you can choose from:
+
+      - Sending email from your P2
+
+      - Controlling your P2 from a web page served from the attached RPi
+
+      - Reading data from files on your Raspberry Pi
+
+      - Writing data to files on your Raspberry Pi
+
+      - Querying configuration values of Pi from the P2
+
+
+      A collection of demos with working code for each can be found at: DEMOs (https://github.com/ironsheep/P2-RPi-ioT-gateway#demos)
+
+
+      At the Repository, you can find:
+
+      - Full RPi setup and configuration details to get all features of the demo running
+      on your own hardware
+
+      - Wiring instructions for the serial communications from the P2 to the RPi
+
+      - Configuration instructions for the RPi Apache web server
+
+      - PHP-based demonstration web page(s) that shows a display of values received
+      from P2 (and maybe even UI controls that can send values to the P2)
+
+      - Both the P2 Object source and the RPi Python daemon scripts
+
+      - Example code that shows each of the services being exercised
+
+
+      Version (1.0.0) Release Notes (https://github.com/ironsheep/P2-RPi-IoT-gateway/releases/tag/v1.0.0)
+
+
+      GitHub repository: P2 RPi ioT Gateway (https://github.com/ironsheep/P2-RPi-IoT-gateway)
+
+
+      This capability is referenced in the following forum thread:
+
+      Forum Thread: using-a-raspberry-pi-as-an-iot-gateway-for-our-p2-projects (https://forums.parallax.com/discussion/174283/using-a-raspberry-pi-as-an-iot-gateway-for-our-p2-projects#latest)
+
+
+      DOWNLOAD: please get this code directly from the repo (https://github.com/ironsheep/P2-RPi-IoT-gateway).
+      as there is both P2 code and Raspberry Pi code there for use.'
+  technical_details:
+    content_type:
+    - Code
+    microcontroller:
+    - P2
+    languages:
+    - PASM2
+    - SPIN2
+    licence: MIT
+  metadata:
+    created_date: '2024-03-12'
+  urls:
+    obex_page: https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/

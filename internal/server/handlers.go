@@ -348,9 +348,6 @@ func (s *Server) getOBEXObject(id interface{}, objectID string) *MCPResponse {
 			"command":             fmt.Sprintf("curl -L -o OB%s.zip '%s'", meta.ObjectID, downloadURL),
 		},
 		"metadata": map[string]interface{}{
-			"version":      meta.TechnicalDetails.Version,
-			"file_size":    meta.TechnicalDetails.FileSize,
-			"quality":      meta.Metadata.QualityScore,
 			"created_date": meta.Metadata.CreatedDate,
 		},
 	})

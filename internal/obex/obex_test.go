@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,36 +19,6 @@ import (
 	"github.com/ironsheep/p2kb-mcp/internal/index"
 	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
 )
-
-// objectYAML is an OBEX object file, in the KB's shape.
-const objectYAML = `# OBEX object
-object_metadata:
-  object_id: "2811"
-  title: "Park transformation"
-  author: "ManAtWork"
-  technical_details:
-    languages:
-      - SPIN2
-      - PASM2
-  functionality:
-    category: "motors"
-    description_short: "The Park or d/q-transformation"
-    tags:
-      - servo
-      - motor
-`
-
-// secondYAML is a second object, in another category.
-const secondYAML = `object_metadata:
-  object_id: "4047"
-  title: "I2C driver"
-  author: "Jon McPhalen (jonnymac)"
-  functionality:
-    category: "drivers"
-    description_short: "Two-wire bus driver"
-    tags:
-      - i2c
-`
 
 // newTestManager builds the OBEX manager the way server.New does: index and
 // cache managers over a temp cache dir and a kbtest.Remote.
@@ -70,10 +41,11 @@ func addObject(r *kbtest.Remote, id, body string) {
 	r.AddFile("p2kbCommunity"+id, objectPath(id), 1700000000, body)
 }
 
-// addTypicalObjects serves two objects, the template and a non-OBEX file.
+// addTypicalObjects serves two live-KB objects (2811, a list category; 2842, a
+// string category), the template and a non-OBEX file.
 func addTypicalObjects(r *kbtest.Remote) {
-	addObject(r, "2811", objectYAML)
-	addObject(r, "4047", secondYAML)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
 	r.AddFile("p2kbCommunityTemplate", OBEXPath+"/_template.yaml", 1700000000, "object_metadata:\n  title: TEMPLATE\n")
 	r.AddFile("p2kbPasm2Mov", "deliverables/ai/P2/pasm2/mov.yaml", 1700000000, "mnemonic: MOV\n")
 }
@@ -99,7 +71,7 @@ func TestObjectListComesFromMainIndex(t *testing.T) {
 	m, r := newTestManager(t)
 	addTypicalObjects(r)
 
-	if got, want := m.GetObjectIDs(), []string{"2811", "4047"}; !reflect.DeepEqual(got, want) {
+	if got, want := m.GetObjectIDs(), []string{"2811", "2842"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("GetObjectIDs = %v, want %v (template and non-OBEX files excluded)", got, want)
 	}
 	if got := m.GetTotalObjects(); got != 2 {
@@ -121,8 +93,9 @@ func TestGetObjectReadsThroughKBContentPath(t *testing.T) {
 		}
 		meta := obj.ObjectMetadata
 		if meta.ObjectID != "2811" || meta.Title != "Park transformation" || meta.Author != "ManAtWork" ||
-			meta.Functionality.Category != "motors" ||
-			!reflect.DeepEqual(meta.TechnicalDetails.Languages, []string{"SPIN2", "PASM2"}) {
+			!reflect.DeepEqual(meta.Functionality.Category.Values(), []string{"Math", "Motor Control", "Protocol", "Snippet"}) ||
+			!meta.Functionality.Category.list ||
+			!reflect.DeepEqual(meta.TechnicalDetails.Languages, []string{"PASM2"}) {
 			t.Errorf("GetObject(%q) = %+v", id, meta)
 		}
 	}
@@ -142,7 +115,7 @@ func TestGetObjectTemplateIsNotAnObject(t *testing.T) {
 
 func TestGetObjectReparsesOnlyWhenFileChanges(t *testing.T) {
 	m, r := newTestManager(t)
-	addObject(r, "2811", objectYAML)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 
 	first, err := m.GetObject("2811")
 	if err != nil {
@@ -175,7 +148,7 @@ func TestGetObjectReparsesOnlyWhenFileChanges(t *testing.T) {
 
 func TestObjectBodyIsFilteredBeforeParse(t *testing.T) {
 	m, r := newTestManager(t)
-	addObject(r, "2811", objectYAML)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 	idx := r.Index()
 	// A rule that removes a field the object parser reads proves the body is
 	// filtered before it is parsed.
@@ -196,7 +169,7 @@ func TestObjectBodyIsFilteredBeforeParse(t *testing.T) {
 
 func TestRuleChangeReparsesObject(t *testing.T) {
 	m, r := newTestManager(t)
-	addObject(r, "2811", objectYAML)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 	before, err := m.GetObject("2811")
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +196,7 @@ func TestRuleChangeReparsesObject(t *testing.T) {
 
 func TestGetObjectHashMismatchIsVerificationError(t *testing.T) {
 	m, r := newTestManager(t)
-	addObject(r, "2811", objectYAML)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
 	r.Put(objectPath("2811"), "object_metadata:\n  title: tampered\n")
 
 	_, err := m.GetObject("2811")
@@ -244,21 +217,35 @@ func TestSearchCategoriesAuthorsAcrossAllObjects(t *testing.T) {
 	if len(results) != 1 || results[0].ObjectID != "2811" || results[0].MatchType != "tag" {
 		t.Errorf("Search(servo) = %+v", results)
 	}
-	if results, _ := m.Search("i2c", "", "", 10); len(results) != 1 || results[0].ObjectID != "4047" {
-		t.Errorf("Search(i2c) = %+v", results)
+	if results, _ := m.Search("serial", "", "", 10); len(results) != 1 || results[0].ObjectID != "2842" {
+		t.Errorf("Search(serial) = %+v", results)
 	}
 
 	cats, err := m.GetCategories()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]int{"motors": 1, "drivers": 1}; !reflect.DeepEqual(cats, want) {
+	want := map[string]int{"Protocol": 2, "Math": 1, "Motor Control": 1, "Snippet": 1}
+	if !reflect.DeepEqual(cats, want) {
 		t.Errorf("GetCategories = %v, want %v", cats, want)
 	}
 
-	browse, err := m.BrowseCategory("drivers")
-	if err != nil || len(browse) != 1 || browse[0].ObjectID != "4047" {
-		t.Errorf("BrowseCategory(drivers) = %+v, %v", browse, err)
+	// A lowercase name finds both the list-category object and the string one.
+	// On the 1.5.0 string type 2811 failed to parse and was dropped, so this
+	// found only 2842.
+	browse, err := m.BrowseCategory("protocol")
+	if err != nil || len(browse) != 2 || browse[0].ObjectID != "2811" || browse[1].ObjectID != "2842" {
+		t.Errorf("BrowseCategory(protocol) = %+v, %v", browse, err)
+	}
+	if browse, err := m.BrowseCategory("motor control"); err != nil || len(browse) != 1 || browse[0].ObjectID != "2811" {
+		t.Errorf("BrowseCategory(motor control) = %+v, %v", browse, err)
+	}
+	found, err := m.Search("park", "protocol", "", 10)
+	if err != nil || len(found) != 1 || found[0].ObjectID != "2811" {
+		t.Errorf("Search(park, protocol) = %+v, %v", found, err)
+	}
+	if none, _ := m.Search("park", "display", "", 10); len(none) != 0 {
+		t.Errorf("Search(park, display) = %+v, want none", none)
 	}
 
 	authors, err := m.GetAuthors()
@@ -281,6 +268,89 @@ func TestGetAuthorsOrdersTiesByName(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("GetAuthors = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestKBTestObjectsPathMatchesOBEXPath(t *testing.T) {
+	if kbtest.OBEXObjectsPath != OBEXPath {
+		t.Errorf("kbtest.OBEXObjectsPath = %q, OBEXPath = %q; the copy drifted", kbtest.OBEXObjectsPath, OBEXPath)
+	}
+}
+
+func TestGetObjectFixturesKeepTheKBsRealValues(t *testing.T) {
+	m, r := newTestManager(t)
+	for _, id := range []string{kbtest.OBEXStringCategoryID, kbtest.OBEXListCategoryID, kbtest.OBEXNoDownloadID} {
+		r.AddOBEX(id)
+	}
+
+	str, err := m.GetObject("2842")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := str.ObjectMetadata.Functionality.Category; got.list || !reflect.DeepEqual(got.Values(), []string{"Protocol"}) {
+		t.Errorf("2842 category = %v list=%v", got.Values(), got.list)
+	}
+	if str.ObjectMetadata.Metadata.CreatedDate != "2022-01-04" || str.ObjectMetadata.URLs.DownloadDirect == "" {
+		t.Errorf("2842 created_date %q, download_direct %q", str.ObjectMetadata.Metadata.CreatedDate, str.ObjectMetadata.URLs.DownloadDirect)
+	}
+
+	list, err := m.GetObject("4581")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := list.ObjectMetadata.Functionality.Category.Values(); !reflect.DeepEqual(got, []string{"Display", "Other", "Protocol"}) {
+		t.Errorf("4581 category = %v", got)
+	}
+	if list.ObjectMetadata.URLs.DownloadDirect != "" {
+		t.Errorf("4581 download_direct = %q, want none", list.ObjectMetadata.URLs.DownloadDirect)
+	}
+}
+
+func TestGetCategoriesCountsEmptyAndAbsentAsUncategorized(t *testing.T) {
+	m, r := newTestManager(t)
+	r.AddOBEX(kbtest.OBEXListCategoryID)
+	addObject(r, "7001", "object_metadata:\n  object_id: \"7001\"\n  functionality:\n    category: \"\"\n")
+	addObject(r, "7002", "object_metadata:\n  object_id: \"7002\"\n  title: no category at all\n")
+
+	cats, err := m.GetCategories()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cats["uncategorized"]; got != 2 {
+		t.Errorf("uncategorized = %d, want 2 (empty and absent); all = %v", got, cats)
+	}
+	if got := cats["Math"]; got != 1 {
+		t.Errorf("Math = %d, want 1; all = %v", got, cats)
+	}
+	browse, err := m.BrowseCategory("")
+	if err != nil || len(browse) != 3 {
+		t.Fatalf("BrowseCategory(\"\") = %+v, %v", browse, err)
+	}
+	if got, _ := json.Marshal(browse[1].Category); string(got) != `""` {
+		t.Errorf("empty category json = %s, want \"\"", got)
+	}
+}
+
+func TestSearchResultJSONKeepsTheCategoryForm(t *testing.T) {
+	m, r := newTestManager(t)
+	addTypicalObjects(r)
+
+	results, err := m.BrowseCategory("")
+	if err != nil || len(results) != 2 {
+		t.Fatalf("BrowseCategory = %+v, %v", results, err)
+	}
+	for id, want := range map[string]string{
+		"2811": `"category":["Math","Motor Control","Protocol","Snippet"]`,
+		"2842": `"category":"Protocol"`,
+	} {
+		for _, res := range results {
+			if res.ObjectID != id {
+				continue
+			}
+			if got, _ := json.Marshal(res); !strings.Contains(string(got), want) {
+				t.Errorf("%s json = %s, want it to contain %s", id, got, want)
+			}
 		}
 	}
 }
