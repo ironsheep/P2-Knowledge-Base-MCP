@@ -71,7 +71,7 @@ With category: lists keys in that category.`,
 Get OBEX code object by search or ID.
 Searches OBEX objects using natural language (e.g., "i2c sensor", "led driver") or retrieves by numeric ID.
 Search terms are automatically expanded (i2c matches twi, iic; led matches ws2812, neopixel).
-Returns object metadata with download URL and instructions.`,
+Returns summary fields (title, author, category, description, languages, tags, obex_page, created date), full_metadata (the object's whole metadata as delivered), and the download URL and instructions when OBEX offers a download.`,
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

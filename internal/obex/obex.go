@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path"
@@ -122,6 +123,7 @@ type Manager struct {
 type parsedObject struct {
 	version string
 	obj     *OBEXObject
+	full    map[string]any // object_metadata as plain values, decoded once per version
 }
 
 // objectFile locates an object's YAML in the main index.
@@ -185,12 +187,37 @@ func sortedIDs(objects map[string]objectFile) []string {
 // GetObject retrieves an OBEX object by ID.
 // If object is not found and cooldown has passed, attempts one refresh before giving up.
 func (m *Manager) GetObject(objectID string) (*OBEXObject, error) {
+	of, err := m.resolveObject(objectID)
+	if err != nil {
+		return nil, err
+	}
+	return m.getObject(of)
+}
+
+// GetObjectFull is GetObject plus the object's whole object_metadata mapping,
+// decoded from the same filtered body as the struct. The map is shared with
+// the memo: callers must not modify it.
+func (m *Manager) GetObjectFull(objectID string) (*OBEXObject, map[string]any, error) {
+	of, err := m.resolveObject(objectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	p, err := m.getParsed(of)
+	if err != nil {
+		return nil, nil, err
+	}
+	return p.obj, p.full, nil
+}
+
+// resolveObject finds the index entry for objectID, refreshing the index once
+// (subject to the cooldown) when it is not listed.
+func (m *Manager) resolveObject(objectID string) (objectFile, error) {
 	// Normalize ID (remove OB prefix if present)
 	objectID = normalizeObjectID(objectID)
 
 	objects, err := m.objectFiles()
 	if err != nil {
-		return nil, err
+		return objectFile{}, err
 	}
 	of, ok := lookupObject(objects, objectID)
 	if !ok {
@@ -202,10 +229,10 @@ func (m *Manager) GetObject(objectID string) (*OBEXObject, error) {
 			}
 		}
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrObjectNotFound, objectID)
+			return objectFile{}, fmt.Errorf("%w: %s", ErrObjectNotFound, objectID)
 		}
 	}
-	return m.getObject(of)
+	return of, nil
 }
 
 // lookupObject finds objectID, ignoring case.
@@ -225,6 +252,17 @@ func lookupObject(objects map[string]objectFile, objectID string) (objectFile, b
 // cache (hash-checked, filtered under the rule in effect, stamped) and
 // parsing it again only when the file or the rule changed.
 func (m *Manager) getObject(of objectFile) (*OBEXObject, error) {
+	p, err := m.getParsed(of)
+	if err != nil {
+		return nil, err
+	}
+	return p.obj, nil
+}
+
+// getParsed is getObject's body: the memo entry for of, built from one read
+// of the filtered body and one YAML parse (into a node tree, from which both
+// the struct and full_metadata are decoded).
+func (m *Manager) getParsed(of objectFile) (parsedObject, error) {
 	id := strings.TrimSuffix(path.Base(of.file.Path), ".yaml")
 	version := fmt.Sprintf("%s|%d|%s", of.file.SHA256, of.file.Mtime, cache.Stamp(m.cache.Rule()))
 
@@ -232,26 +270,85 @@ func (m *Manager) getObject(of objectFile) (*OBEXObject, error) {
 	p, ok := m.parsed[id]
 	m.mu.RUnlock()
 	if ok && p.version == version {
-		return p.obj, nil
+		return p, nil
 	}
 
 	content, err := m.cache.GetOrFetch(of.key, of.file.Path, of.file.SHA256, of.file.Mtime)
 	if err != nil {
 		err = fmt.Errorf("failed to read OBEX object %s: %w", id, err)
 		m.warnUnreadable(id, version, err)
-		return nil, err
+		return parsedObject{}, err
 	}
+	var doc yaml.Node
 	obj := &OBEXObject{}
-	if err := yaml.Unmarshal([]byte(content), obj); err != nil {
+	err = yaml.Unmarshal([]byte(content), &doc)
+	if err == nil && doc.Kind != 0 { // Kind 0: an empty body, an object with no fields
+		err = doc.Decode(obj)
+	}
+	if err != nil {
 		err = fmt.Errorf("failed to parse OBEX object %s: %w", id, err)
 		m.warnUnreadable(id, version, err)
-		return nil, err
+		return parsedObject{}, err
 	}
 
+	p = parsedObject{version: version, obj: obj, full: objectMetadataValue(&doc)}
 	m.mu.Lock()
-	m.parsed[id] = parsedObject{version: version, obj: obj}
+	m.parsed[id] = p
 	m.mu.Unlock()
-	return obj, nil
+	return p, nil
+}
+
+// objectMetadataValue returns the object_metadata mapping of a parsed YAML
+// document as plain values (see nodeValue); empty when the document has none.
+func objectMetadataValue(doc *yaml.Node) map[string]any {
+	if root, ok := nodeValue(doc).(map[string]any); ok {
+		if m, ok := root["object_metadata"].(map[string]any); ok {
+			return m
+		}
+	}
+	return map[string]any{}
+}
+
+// nodeValue converts a YAML node to a value encoding/json accepts. It walks the
+// node tree instead of decoding into interface{}, because yaml.v3 turns an
+// unquoted 2022-01-04 into time.Time and an int-keyed mapping into
+// map[interface{}]interface{}, which json refuses. Mappings become
+// map[string]any keyed by the key's text; sequences []any; a !!timestamp scalar
+// keeps its original text; other scalars decode to string, bool, int, float or nil.
+func nodeValue(n *yaml.Node) any {
+	switch n.Kind {
+	case yaml.DocumentNode:
+		if len(n.Content) > 0 {
+			return nodeValue(n.Content[0])
+		}
+		return nil
+	case yaml.AliasNode:
+		return nodeValue(n.Alias)
+	case yaml.MappingNode:
+		out := make(map[string]any, len(n.Content)/2)
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			out[n.Content[i].Value] = nodeValue(n.Content[i+1])
+		}
+		return out
+	case yaml.SequenceNode:
+		out := make([]any, 0, len(n.Content))
+		for _, c := range n.Content {
+			out = append(out, nodeValue(c))
+		}
+		return out
+	}
+	// ScalarNode
+	if n.ShortTag() == "!!timestamp" {
+		return n.Value
+	}
+	var v any
+	if err := n.Decode(&v); err != nil {
+		return n.Value
+	}
+	if f, ok := v.(float64); ok && (math.IsInf(f, 0) || math.IsNaN(f)) {
+		return n.Value // JSON has no inf/nan
+	}
+	return v
 }
 
 // Unreadable names an object whose body could not be read or parsed, and why.

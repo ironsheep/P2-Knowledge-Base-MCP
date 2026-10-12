@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/index"
 	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
+	"gopkg.in/yaml.v3"
 )
 
 // newTestManager builds the OBEX manager the way server.New does: index and
@@ -192,6 +194,183 @@ func TestRuleChangeReparsesObject(t *testing.T) {
 	}
 	if after.ObjectMetadata.Author != "" {
 		t.Errorf("author = %q after the rule changed, want removed", after.ObjectMetadata.Author)
+	}
+}
+
+// edgeBody exercises what yaml.v3 decodes badly into interface{}: an unquoted
+// date and timestamp, an int-keyed mapping, plus bool, int, float, null and
+// list values and `source:` fields at two depths for the delivery filter.
+const edgeBody = `object_metadata:
+  object_id: "9001"
+  title: Edge
+  has_github_repo: false
+  released: 2022-01-04
+  stamp: 2022-01-04T10:20:30Z
+  count: 7
+  ratio: 1.5
+  nothing: null
+  big: .inf
+  tags: [a, b]
+  42: forty-two
+  nested:
+    7: seven
+    source: dropped-nested
+  source: dropped-top
+`
+
+func TestGetObjectFullMetadataKeysFromFilteredBody(t *testing.T) {
+	m, r := newTestManager(t)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+
+	_, full, err := m.GetObjectFull("2842")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(full))
+	for k := range full {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	want := []string{"author", "functionality", "metadata", "object_id", "technical_details", "title", "urls"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Errorf("full_metadata keys = %v, want %v", keys, want)
+	}
+	if !reflect.DeepEqual(full["metadata"], map[string]any{"created_date": "2022-01-04"}) {
+		t.Errorf("full_metadata.metadata = %#v", full["metadata"])
+	}
+	if _, err := json.Marshal(full); err != nil {
+		t.Errorf("full_metadata does not encode: %v", err)
+	}
+}
+
+func TestFullMetadataNodeWalkTypes(t *testing.T) {
+	m, r := newTestManager(t)
+	addObject(r, "9001", edgeBody)
+
+	obj, full, err := m.GetObjectFull("9001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obj.ObjectMetadata.Title != "Edge" {
+		t.Errorf("struct title = %q", obj.ObjectMetadata.Title)
+	}
+	want := map[string]any{
+		"object_id":       "9001",
+		"title":           "Edge",
+		"has_github_repo": false,
+		"released":        "2022-01-04", // original text, not a timestamp
+		"stamp":           "2022-01-04T10:20:30Z",
+		"count":           7,
+		"ratio":           1.5,
+		"nothing":         nil,
+		"big":             ".inf", // JSON has no infinity
+		"tags":            []any{"a", "b"},
+		"42":              "forty-two", // int key becomes a string key
+		"nested":          map[string]any{"7": "seven"},
+	}
+	if !reflect.DeepEqual(full, want) {
+		t.Errorf("full_metadata = %#v\nwant %#v", full, want)
+	}
+	out, err := json.Marshal(full)
+	if err != nil {
+		t.Fatalf("json.Marshal(full_metadata): %v", err)
+	}
+	if !strings.Contains(string(out), `"released":"2022-01-04"`) || !strings.Contains(string(out), `"has_github_repo":false`) ||
+		!strings.Contains(string(out), `"42":"forty-two"`) {
+		t.Errorf("encoded full_metadata = %s", out)
+	}
+	// The filtered fields are gone at every depth: the walk saw the filtered body.
+	if strings.Contains(string(out), "dropped") || strings.Contains(string(out), `"source"`) {
+		t.Errorf("full_metadata kept a source field: %s", out)
+	}
+}
+
+// TestInterfaceDecodeIsWhyTheNodeWalk shows the measured yaml.v3 behaviour the
+// node walk exists to avoid: decoding into interface{} turns an unquoted date
+// into time.Time and an int-keyed mapping into a map json refuses.
+func TestInterfaceDecodeIsWhyTheNodeWalk(t *testing.T) {
+	var v map[string]any
+	if err := yaml.Unmarshal([]byte("d: 2022-01-04\n"), &v); err != nil {
+		t.Fatal(err)
+	}
+	if ts, ok := v["d"].(time.Time); !ok {
+		t.Errorf("interface{} decode of an unquoted date = %T, want time.Time", v["d"])
+	} else if out, _ := json.Marshal(ts); string(out) != `"2022-01-04T00:00:00Z"` {
+		t.Errorf("time.Time encodes as %s", out)
+	}
+
+	var w map[string]any
+	if err := yaml.Unmarshal([]byte("k:\n  7: seven\n"), &w); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := json.Marshal(w); err == nil {
+		t.Errorf("json.Marshal of an int-keyed mapping decoded into interface{} succeeded (%T)", w["k"])
+	}
+}
+
+// TestFullMetadataFromFilteredBodyNotRaw: the served body carries a source:
+// field the delivery rule removes. Decoded from the raw body it would be in
+// full_metadata (the raw body is what the remote serves and what the sha256
+// covers); it is absent, so the walk ran over the cache's filtered body.
+func TestFullMetadataFromFilteredBodyNotRaw(t *testing.T) {
+	m, r := newTestManager(t)
+	addObject(r, "9001", edgeBody)
+	if !strings.Contains(edgeBody, "source: dropped-top") {
+		t.Fatal("test body lost its source field")
+	}
+	_, full, err := m.GetObjectFull("9001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := full["source"]; present {
+		t.Error("full_metadata has source: it was decoded from the raw body")
+	}
+	if nested, _ := full["nested"].(map[string]any); nested == nil || len(nested) != 1 {
+		t.Errorf("nested = %#v, want only key 7", full["nested"])
+	}
+}
+
+// TestFullMetadataDecodedOncePerBodyVersion observes the memo through map
+// identity: the same map for an unchanged body, a new one when the body changes.
+func TestFullMetadataDecodedOncePerBodyVersion(t *testing.T) {
+	m, r := newTestManager(t)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+
+	_, first, err := m.GetObjectFull("2842")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, again, err := m.GetObjectFull("2842")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(again).Pointer() != reflect.ValueOf(first).Pointer() {
+		t.Error("full_metadata was decoded again for an unchanged body")
+	}
+	if got := r.Hits(objectPath("2842")); got != 1 {
+		t.Errorf("object fetches = %d, want 1", got)
+	}
+
+	r.AddFile("p2kbCommunity2842", objectPath("2842"), 1700000100, "object_metadata:\n  object_id: \"2842\"\n  title: Changed\n")
+	if err := m.index.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	_, next, err := m.GetObjectFull("2842")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reflect.ValueOf(next).Pointer() == reflect.ValueOf(first).Pointer() || next["title"] != "Changed" {
+		t.Errorf("full_metadata not redecoded for a changed body: %#v", next)
+	}
+}
+
+func TestGetObjectFullUnparseableNamesObject(t *testing.T) {
+	m, r := newTestManager(t)
+	r.AddOBEX(kbtest.OBEXMalformedID)
+
+	_, _, err := m.GetObjectFull(kbtest.OBEXMalformedID)
+	if err == nil || errors.Is(err, ErrObjectNotFound) || !strings.Contains(err.Error(), kbtest.OBEXMalformedID) {
+		t.Errorf("GetObjectFull err = %v, want a parse error naming the object", err)
 	}
 }
 

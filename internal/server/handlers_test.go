@@ -15,6 +15,7 @@ import (
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/kbtest"
+	"github.com/ironsheep/p2kb-mcp/internal/obex"
 )
 
 // Test helper functions
@@ -1091,32 +1092,109 @@ func TestHandleRefreshFlushClearsObexCache(t *testing.T) {
 func TestOBEXGetResultShape(t *testing.T) {
 	srv, r := newTestServer(t)
 	r.AddOBEX(kbtest.OBEXListCategoryID)
+	r.AddOBEX(kbtest.OBEXStringCategoryID)
+	r.AddOBEX(kbtest.OBEXNoDownloadID)
 
-	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"2811"}`))
+	get := func(query string) map[string]interface{} {
+		t.Helper()
+		resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"`+query+`"}`))
+		if resp.Error != nil {
+			t.Fatalf("handleOBEXGet(%s): %v", query, resp.Error)
+		}
+		return extractResultMap(t, resp)
+	}
+	keysOf := func(m map[string]interface{}) []string {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+
+	// With a download (2842): the whole key set, download pair included.
+	got := get("2842")
+	want := []string{"author", "category", "description", "download_instructions", "download_url", "full_metadata",
+		"languages", "metadata", "obex_page", "object_id", "tags", "title", "type"}
+	if keys := keysOf(got); !reflect.DeepEqual(keys, want) {
+		t.Errorf("2842 result fields = %v, want %v", keys, want)
+	}
+	if got["type"] != "obex_object" || got["object_id"] != "2842" || got["title"] != "Full Duplex Serial" {
+		t.Errorf("2842 result = %v", got)
+	}
+	if !reflect.DeepEqual(got["metadata"], map[string]interface{}{"created_date": "2022-01-04"}) {
+		t.Errorf("2842 metadata = %v, want exactly created_date", got["metadata"])
+	}
+	if wantURL := "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2842"; got["download_url"] != wantURL {
+		t.Errorf("2842 download_url = %v, want the fixture's download_direct", got["download_url"])
+	}
+	full, _ := got["full_metadata"].(map[string]interface{})
+	wantFull := []string{"author", "functionality", "metadata", "object_id", "technical_details", "title", "urls"}
+	if keys := keysOf(full); !reflect.DeepEqual(keys, wantFull) {
+		t.Errorf("2842 full_metadata keys = %v, want %v", keys, wantFull)
+	}
+	// No quality, version or file_size anywhere in the result, at any depth.
+	encoded, _ := json.Marshal(got)
+	for _, banned := range []string{`"quality"`, `"version"`, `"file_size"`} {
+		if strings.Contains(string(encoded), banned) {
+			t.Errorf("2842 result contains %s", banned)
+		}
+	}
+
+	// No download_direct (4581): neither download_url nor download_instructions.
+	got = get("4581")
+	want = []string{"author", "category", "description", "full_metadata", "languages", "metadata", "obex_page",
+		"object_id", "tags", "title", "type"}
+	if keys := keysOf(got); !reflect.DeepEqual(keys, want) {
+		t.Errorf("4581 result fields = %v, want %v", keys, want)
+	}
+	for _, absent := range []string{"download_url", "download_instructions"} {
+		if v, present := got[absent]; present {
+			t.Errorf("4581 result has %s = %v, want the key absent", absent, v)
+		}
+	}
+
+	// 2811's category is a list in the KB; the result keeps that form.
+	got = get("2811")
+	if cats, ok := got["category"].([]interface{}); !ok || len(cats) != 4 || cats[0] != "Math" {
+		t.Errorf("2811 category = %#v, want the 4-element list", got["category"])
+	}
+	if !reflect.DeepEqual(got["metadata"], map[string]interface{}{"created_date": "2020-05-09"}) {
+		t.Errorf("2811 metadata = %v, want created_date only", got["metadata"])
+	}
+}
+
+// TestOBEXGetOmitsMetadataWithoutCreatedDate: no created_date, no metadata key.
+func TestOBEXGetOmitsMetadataWithoutCreatedDate(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddFile("p2kbCommunity9002", obex.OBEXPath+"/9002.yaml", 1700000000,
+		"object_metadata:\n  object_id: \"9002\"\n  title: Dateless\n  metadata:\n    source: x\n")
+
+	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"9002"}`))
 	if resp.Error != nil {
 		t.Fatalf("handleOBEXGet: %v", resp.Error)
 	}
 	got := extractResultMap(t, resp)
+	if v, present := got["metadata"]; present {
+		t.Errorf("metadata = %v, want the key omitted", v)
+	}
+	if _, present := got["full_metadata"]; !present {
+		t.Error("full_metadata missing")
+	}
+}
 
-	keys := make([]string, 0, len(got))
-	for k := range got {
-		keys = append(keys, k)
+// TestOBEXGetUnparseableObjectIsAnErrorNamingIt: a body that does not parse is
+// an error naming the object, not object_not_found.
+func TestOBEXGetUnparseableObjectIsAnErrorNamingIt(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.AddOBEX(kbtest.OBEXMalformedID)
+
+	resp := srv.handleOBEXGet(1, json.RawMessage(`{"query":"`+kbtest.OBEXMalformedID+`"}`))
+	if resp.Error == nil {
+		t.Fatalf("handleOBEXGet result = %v, want an error", resp.Result)
 	}
-	sort.Strings(keys)
-	want := []string{"author", "category", "description", "download_instructions", "download_url",
-		"languages", "metadata", "obex_page", "object_id", "tags", "title", "type"}
-	if !reflect.DeepEqual(keys, want) {
-		t.Errorf("result fields = %v, want %v", keys, want)
-	}
-	if got["type"] != "obex_object" || got["object_id"] != "2811" || got["title"] != "Park transformation" {
-		t.Errorf("result = %v", got)
-	}
-	// 2811's category is a list in the KB; the result keeps that form.
-	if cats, ok := got["category"].([]interface{}); !ok || len(cats) != 4 || cats[0] != "Math" {
-		t.Errorf("result category = %#v, want the 4-element list", got["category"])
-	}
-	if meta, _ := got["metadata"].(map[string]interface{}); !reflect.DeepEqual(meta, map[string]interface{}{"created_date": "2020-05-09"}) {
-		t.Errorf("result metadata = %v, want created_date only", got["metadata"])
+	if !strings.Contains(resp.Error.Data.(string), kbtest.OBEXMalformedID) {
+		t.Errorf("error = %+v, want it to name the object", resp.Error)
 	}
 }
 
@@ -1185,9 +1263,23 @@ func TestOBEXUnreadableObjectsAreReported(t *testing.T) {
 	r.AddOBEX(kbtest.OBEXListCategoryID)
 	r.AddOBEX(kbtest.OBEXStringCategoryID)
 
-	for name, res := range obexResults(t, srv) {
+	healthy := obexResults(t, srv)
+	for name, res := range healthy {
 		if _, present := res["unreadable_objects"]; present {
 			t.Errorf("healthy %s result has an unreadable_objects key: %v", name, res)
+		}
+	}
+	// O5: suggestions stay a short list, with no metadata or full_metadata.
+	suggestions, _ := healthy["suggestions"]["suggestions"].([]interface{})
+	if len(suggestions) == 0 {
+		t.Fatalf("suggestions = %v, want entries", healthy["suggestions"])
+	}
+	for _, s := range suggestions {
+		entry, _ := s.(map[string]interface{})
+		for _, k := range []string{"metadata", "full_metadata"} {
+			if _, present := entry[k]; present {
+				t.Errorf("suggestion %v carries %s", entry["object_id"], k)
+			}
 		}
 	}
 	obexSection := func() map[string]interface{} {

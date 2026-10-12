@@ -319,9 +319,11 @@ func withUnreadable(result map[string]interface{}, unreadable []obex.Unreadable)
 	return result
 }
 
-// getOBEXObject returns full OBEX object info with download instructions.
+// getOBEXObject returns an OBEX object's summary, its whole filtered
+// object_metadata as full_metadata, and download instructions when the object
+// has a download_direct URL.
 func (s *Server) getOBEXObject(id interface{}, objectID string) *MCPResponse {
-	obj, err := s.obexManager.GetObject(objectID)
+	obj, full, err := s.obexManager.GetObjectFull(objectID)
 	if err != nil && !errors.Is(err, obex.ErrObjectNotFound) {
 		return s.errorResponse(id, -32000, "Failed to get OBEX object", err.Error())
 	}
@@ -335,31 +337,31 @@ func (s *Server) getOBEXObject(id interface{}, objectID string) *MCPResponse {
 	}
 
 	meta := obj.ObjectMetadata
-	downloadURL := s.obexManager.GetDownloadURL(meta.ObjectID)
-
-	// Generate slug for directory naming
-	slug := generateSlug(meta.Title)
-
-	return s.successResponse(id, map[string]interface{}{
-		"type":         "obex_object",
-		"object_id":    meta.ObjectID,
-		"title":        meta.Title,
-		"author":       meta.Author,
-		"category":     meta.Functionality.Category,
-		"description":  meta.Functionality.DescriptionShort,
-		"languages":    meta.TechnicalDetails.Languages,
-		"tags":         meta.Functionality.Tags,
-		"download_url": downloadURL,
-		"obex_page":    meta.URLs.OBEXPage,
-		"download_instructions": map[string]interface{}{
-			"suggested_directory": fmt.Sprintf("OBEX/%s", slug),
+	result := map[string]interface{}{
+		"type":          "obex_object",
+		"object_id":     meta.ObjectID,
+		"title":         meta.Title,
+		"author":        meta.Author,
+		"category":      meta.Functionality.Category,
+		"description":   meta.Functionality.DescriptionShort,
+		"languages":     meta.TechnicalDetails.Languages,
+		"tags":          meta.Functionality.Tags,
+		"obex_page":     meta.URLs.OBEXPage,
+		"full_metadata": full,
+	}
+	if meta.Metadata.CreatedDate != "" {
+		result["metadata"] = map[string]interface{}{"created_date": meta.Metadata.CreatedDate}
+	}
+	// OBEX offers a download only when the object has a download_direct URL.
+	if downloadURL := meta.URLs.DownloadDirect; downloadURL != "" {
+		result["download_url"] = downloadURL
+		result["download_instructions"] = map[string]interface{}{
+			"suggested_directory": fmt.Sprintf("OBEX/%s", generateSlug(meta.Title)),
 			"filename":            fmt.Sprintf("OB%s.zip", meta.ObjectID),
 			"command":             fmt.Sprintf("curl -L -o OB%s.zip '%s'", meta.ObjectID, downloadURL),
-		},
-		"metadata": map[string]interface{}{
-			"created_date": meta.Metadata.CreatedDate,
-		},
-	})
+		}
+	}
+	return s.successResponse(id, result)
 }
 
 // handleOBEXFind implements p2kb_obex_find - explore OBEX objects.
