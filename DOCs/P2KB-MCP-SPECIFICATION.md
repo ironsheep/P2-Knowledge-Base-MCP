@@ -54,14 +54,17 @@ use them.
 
 ## 3. Index structure
 
+Schema 3.6.0 (the published index is 3.5.0 until the next KB release; 3.5.0 is the same
+without `delivery_filter`). Counts are illustrative.
+
 ```json
 {
   "system": {
-    "version": "3.5.0",
-    "generated": "2026-10-04T18:47:24.835817",
-    "total_entries": 1131,
+    "version": "3.6.0",
+    "generated": "2026-10-07T21:27:30.000000",
+    "total_entries": 1130,
     "total_categories": 59,
-    "total_aliases": 3091,
+    "total_aliases": 3102,
     "multi_target_aliases": 189,
     "source": "deliverables/ai/P2/"
   },
@@ -104,9 +107,12 @@ objects included) before the file is parsed, cached or returned.
 the rule block, the format-1 engine and its Go reference, the built-in rule, how the rule in effect
 is chosen, empty input, exactness details — is in the agreement, §§3–5.
 
-**Today (2026-10-07)** the live server still applies its original five-field regex, so `sources:`
-blocks and provenance comments reach agents (register finding **F-439**). The agreement replaces that
-filter entirely; F-439 closes when the agreement's live acceptance (§10) passes.
+**p2kb-mcp 1.5.0 implements the agreement** (validated live 2026-10-11, F-439 closed): it reports
+`filter_rule_source: index` and applies the index's rule to every KB and OBEX body. **1.4.0 and
+earlier** apply only the original five-field regex (`documentation_level`, `documentation_source`,
+`enhancement_source`, `last_updated`, `manual_extraction_date`), so on those versions `source:` /
+`sources:` / `source_reference:` / `verified_against:` / `scrape_tracking:` blocks and column-0
+comments still reach agents.
 
 ## 5. Tools — as served today
 
@@ -115,13 +121,13 @@ as the authoritative P2 source.
 
 | Tool | Parameters | What it does |
 |---|---|---|
-| `p2kb_get` | `query` (string, required) — natural language or an exact key | Returns one KB entry's content plus related items; ambiguous queries return suggestions. The result is JSON; the YAML is in its **`content`** field. |
+| `p2kb_get` | `query` (string, required) — natural language or an exact key | Returns one KB entry; ambiguous queries return suggestions. The result is JSON: the filtered YAML in **`content`**, plus `type`, `key`, `categories`, and `resolved_from` when an alias was used (MCP agent, 2026-10-07; the earlier `related` field is being removed). |
 | `p2kb_find` | `term`, `category` (strings, optional), `limit` (int, default 50) | No parameters: categories with counts. `term`: matching keys. `category`: keys in that category. |
 | `p2kb_refresh` | `flush` (bool, default false), `include_obex` (bool, default false) | Re-fetches the index and removes stale cache entries by index timestamps; `flush` wipes the whole content cache; `include_obex` also refreshes OBEX. |
-| `p2kb_version` | none | Diagnostic: `mcp_version`, `index_version`, index status (`total_entries`, `total_categories`, `total_aliases`, cache age), OBEX cache status. **Agreed additions** (not yet built): `filter_rule_id`, `filter_rule_source`, `filter_engine_version`, `filter_rule_refused` — agreement §7. |
-| `p2kb_obex_get` | `query` (string, required) — search text or numeric object id | One OBEX object's metadata with download URL and instructions. |
-| `p2kb_obex_find` | `term`, `category`, `author` (strings, optional), `limit` (int, default 20) | Browse/search OBEX objects. |
-| `p2kb_obex_download` | `object_id` (string, required), `target_dir` (optional) | Downloads and extracts an OBEX object (default `./OBEX/<id>-<slug>/`). |
+| `p2kb_version` | none | Diagnostic: `mcp_version`, `index_version`, index status (`total_entries`, `total_categories`, `total_aliases`, cache age), OBEX cache status. **Agreed additions** (built in 1.5.0, verified 2026-10-11): `filter_rule_id`, `filter_rule_source`, `filter_engine_version`, `filter_rule_refused` — agreement §7. |
+| `p2kb_obex_get` | `query` (string, required) — search text or numeric object id | One OBEX object: summary fields (`description` ← `functionality.description_short`), download URL and instructions, and `metadata`. **1.5.0:** `metadata` = `{created_date, file_size, quality, version}`, every key always present (`quality` always 0, empty values as `""`). **From 1.5.1 (breaking):** `metadata` holds only `created_date` ← `metadata.created_date`, and is omitted when that is empty; no `quality`, `version` or `file_size` (from KB v1.24.4 no object has a version or size field: each object is a pure mirror of its catalog page); `download_url` ← `urls.download_direct`, and it is omitted, with `download_instructions`, when the object has no download (5 objects); plus `full_metadata`, the object's whole `object_metadata` after the delivery filter. Field contract: `OBEX-IMPLEMENTATION-SPEC.md` `ObexGetResult`; change request `MCP-OBEX-SUMMARY-CHANGE-REQUEST.md`. A multi-match query returns `type: suggestions`. |
+| `p2kb_obex_find` | `term`, `category`, `author` (strings, optional), `limit` (int, default 20) | Browse/search OBEX objects; each result's `description` is the object's one-line summary (`functionality.description_short`). Categories are OBEX's own (KB v1.24.2): `functionality.category` is a string or a list. **1.5.0:** the `category` parameter's description lists nine old values. **From 1.5.1:** no fixed list — the no-parameter call lists the categories with counts, built from the objects, and `category` matches the string or any list element, case-insensitively (`MCP-OBEX-SUMMARY-CHANGE-REQUEST.md` §3.5). |
+| `p2kb_obex_download` | `object_id` (string, required), `target_dir` (optional) | Downloads and extracts an OBEX object (default `./OBEX/<id>-<slug>/`). **From 1.5.1:** the URL is the object's `urls.download_direct`; an object without one (OBEX offers no download) fetches nothing and returns a message naming its page (`MCP-OBEX-SUMMARY-CHANGE-REQUEST.md` §3.6). |
 
 The original design's `p2kb_search`, `p2kb_browse`, `p2kb_categories`, `p2kb_batch_get`,
 `p2kb_info`, `p2kb_stats`, `p2kb_related` and `p2kb_help` are not part of the interface; `p2kb_get`
@@ -164,13 +170,14 @@ The engine is certified against a KB-built bundle — the whole KB with expected
 golden vectors, rule variants — before either side releases: agreement §9. Live acceptance after
 release: agreement §10.
 
-## 10. Open with the MCP agent
+## 10. Notes with the MCP agent — settled 2026-10-07
 
-Items this spec states from the agreement or the original design and that the server side should
-confirm or correct:
-
-1. The two contract changes made after the agreement's review: a **missing** rule block falls back
-   to last-good (not straight to built-in), and rule parsing is **strict** (agreement §§3, 5).
-2. That the OBEX tools read the object YAMLs through the same fetch path, so §4's filter covers them.
-3. The `p2kb_get` result's other fields (beyond `content`), if the KB's acceptance probes should read
-   them.
+1. A **missing** rule block falls back to last-good, the same as a refused one, and rule parsing is
+   **strict** (agreement §§3, 5). *Confirmed by the MCP agent.*
+2. OBEX object YAMLs are KB files and get the same filter (agreement §5.1). *MCP agent: not today —
+   after this sprint the OBEX objects go through the same fetch path, so the filter covers them.*
+   Until then the gap is nil in practice: the OBEX objects carry none of the §3 fields, and one
+   column-0 comment, in `_template.yaml`.
+3. The acceptance probes read only `content` from `p2kb_get` and the four named fields from
+   `p2kb_version`. *MCP agent: `p2kb_get`'s other fields are `type`, `key`, `categories`, and
+   `resolved_from` when an alias was used; `related` is being removed* (§5).
