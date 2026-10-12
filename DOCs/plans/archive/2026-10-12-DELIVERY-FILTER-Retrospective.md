@@ -84,7 +84,10 @@ Candidates (for Stephen's verdict; none applied here):
 **Verdicts (Stephen, 2026-10-12):**
 - Candidate 1 — **approved for central**: hook on `todo_start` and `todo_complete`. Entered in the
   candidates buffer as a PENDING nomination for the promotion close-out.
-- Candidates 2–6 — awaiting verdict.
+- Candidate 2 — **approved for central**: `plan-to-tasks` carries Verify bullets verbatim with a
+  count check.
+- Candidates 3–6 — Stephen deferred them to central evaluation; entered in the buffer as agent
+  recommendations, PENDING his ruling there.
 
 ### Punch list
 
