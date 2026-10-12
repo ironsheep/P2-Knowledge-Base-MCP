@@ -169,43 +169,195 @@ Get OBEX (Parallax Object Exchange) object by search term or numeric ID.
 
 **Returns (object found):**
 
+`full_metadata` is the object's whole metadata as the KB delivers it; the other fields are a summary of it.
+The object's field contract is the KB's
+[OBEX-IMPLEMENTATION-SPEC.md](https://github.com/ironsheep/P2-Knowledge-Base/blob/main/engineering/tools/p2kb-mcp/OBEX-IMPLEMENTATION-SPEC.md).
+`category` is a string, or a list of strings when the object is in several categories. `metadata` holds
+only `created_date`, and is omitted when the object has none. Shown for object 2811, with
+`description_full` shortened (truncated):
+
 ```json
 {
-  "type": "obex_object",
-  "object_id": "2811",
-  "title": "Park transformation",
   "author": "ManAtWork",
-  "category": "motors",
-  "description": "CORDIC-based park transformation for motor control",
-  "languages": ["SPIN2", "PASM2"],
-  "tags": ["motor", "cordic", "servo"],
-  "download_url": "https://obex.parallax.com/...",
-  "obex_page": "https://obex.parallax.com/obex/park-transformation/",
+  "category": [
+    "Math",
+    "Motor Control",
+    "Protocol",
+    "Snippet"
+  ],
+  "description": "Code snippet showing how the P2 CORDIC does the Park (d/q) transform and its inverse, for AC or brushless servo motors.",
   "download_instructions": {
-    "suggested_directory": "OBEX/park-transformation",
+    "command": "curl -L -o OB2811.zip 'https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811'",
     "filename": "OB2811.zip",
-    "command": "curl -L -o OB2811.zip 'https://obex.parallax.com/...'"
+    "suggested_directory": "OBEX/park-transformation"
   },
+  "download_url": "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811",
+  "full_metadata": {
+    "author": "ManAtWork",
+    "functionality": {
+      "category": [
+        "Math",
+        "Motor Control",
+        "Protocol",
+        "Snippet"
+      ],
+      "description_full": "The Park or d/q-transformation is useful when controlling AC motors or brushless servo motors. It transforms currents or voltages from a three phase system with stator reference into a rectangular coordinate system that is referenced to the rotor. …",
+      "description_short": "Code snippet showing how the P2 CORDIC does the Park (d/q) transform and its inverse, for AC or brushless servo motors.",
+      "tags": [
+        "Servo"
+      ]
+    },
+    "metadata": {
+      "created_date": "2020-05-09"
+    },
+    "object_id": "2811",
+    "technical_details": {
+      "content_type": [
+        "Code"
+      ],
+      "languages": [
+        "PASM2"
+      ],
+      "licence": "Other",
+      "microcontroller": [
+        "P2"
+      ]
+    },
+    "title": "Park transformation",
+    "urls": {
+      "download_direct": "https://obex.parallax.com/wp-admin/admin-ajax.php?action=download_obex_zip&popcorn=salty&obuid=OB2811",
+      "obex_page": "https://obex.parallax.com/obex/park-transformation/"
+    }
+  },
+  "languages": [
+    "PASM2"
+  ],
   "metadata": {
-    "version": "",
-    "file_size": "16 B",
-    "quality": 5,
-    "created_date": "2020-05-09 12:00:00"
-  }
+    "created_date": "2020-05-09"
+  },
+  "obex_page": "https://obex.parallax.com/obex/park-transformation/",
+  "object_id": "2811",
+  "tags": [
+    "Servo"
+  ],
+  "title": "Park transformation",
+  "type": "obex_object"
+}
+```
+
+**Returns (object with no download on OBEX):**
+
+Some objects have no download. For those the result carries no `download_url` and no
+`download_instructions`; the object's `description` and `obex_page` say where the code is.
+`p2kb_obex_download` answers such an object with `no_download` (see below). The result is otherwise the
+same shape; shown for object 4581, with `description_full` shortened (truncated):
+
+```json
+{
+  "author": "Stephen M Moraco",
+  "category": [
+    "Display",
+    "Other",
+    "Protocol"
+  ],
+  "description": "P2 object using a serial-linked Raspberry Pi as an IoT gateway: email, web-page control, RPi files and config values.",
+  "full_metadata": {
+    "author": "Stephen M Moraco",
+    "functionality": {
+      "category": [
+        "Display",
+        "Other",
+        "Protocol"
+      ],
+      "description_full": "This provides a Spin2/Pasm2 object to be run on the P2. The P2 communicates over high-speed bidirectional serial with a connected Raspberry Pi (RPi), which runs a Python script that handles the requests from the P2. …",
+      "description_short": "P2 object using a serial-linked Raspberry Pi as an IoT gateway: email, web-page control, RPi files and config values.",
+      "tags": [
+        "email",
+        "Gateway",
+        "IoT",
+        "Python",
+        "Raspberry Pi"
+      ]
+    },
+    "metadata": {
+      "created_date": "2024-03-12"
+    },
+    "object_id": "4581",
+    "technical_details": {
+      "content_type": [
+        "Code"
+      ],
+      "languages": [
+        "PASM2",
+        "SPIN2"
+      ],
+      "licence": "MIT",
+      "microcontroller": [
+        "P2"
+      ]
+    },
+    "title": "ISP P2 RPi IoT Gateway",
+    "urls": {
+      "obex_page": "https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/"
+    }
+  },
+  "languages": [
+    "PASM2",
+    "SPIN2"
+  ],
+  "metadata": {
+    "created_date": "2024-03-12"
+  },
+  "obex_page": "https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/",
+  "object_id": "4581",
+  "tags": [
+    "email",
+    "Gateway",
+    "IoT",
+    "Python",
+    "Raspberry Pi"
+  ],
+  "title": "ISP P2 RPi IoT Gateway",
+  "type": "obex_object"
 }
 ```
 
 **Returns (multiple matches):**
 
+Each suggestion carries `match_type` (what matched: `title`, `description` or `tag`). Shown for
+`query: "full duplex serial"`, first 3 of 10 suggestions (truncated):
+
 ```json
 {
-  "type": "suggestions",
-  "query": "led",
   "message": "Multiple OBEX objects found. Specify an object_id or refine your search.",
+  "query": "full duplex serial",
   "suggestions": [
-    {"object_id": "4047", "title": "WS2812B LED Driver", "author": "...", "category": "drivers"},
-    {"object_id": "5274", "title": "NeoPixel Controller", "author": "...", "category": "drivers"}
-  ]
+    {
+      "author": "Riley August",
+      "category": "Protocol",
+      "description": "Modular objects that interface with an ESP32 over a 2 pin serial UART, for the default Espressif \"AT firmware\".",
+      "match_type": "description",
+      "object_id": "2837",
+      "title": "ESP32"
+    },
+    {
+      "author": "Jon McPhalen",
+      "category": "Protocol",
+      "description": "DMX output for the MikroElektronika RS485 Click 3v3 board.",
+      "match_type": "description",
+      "object_id": "2839",
+      "title": "Click DMX-TX"
+    },
+    {
+      "author": "Jon McPhalen",
+      "category": "Protocol",
+      "description": "Interface for the MikroElektronika RS485 Click 3v3 board.",
+      "match_type": "title",
+      "object_id": "2840",
+      "title": "Click RS485_3v3"
+    }
+  ],
+  "type": "suggestions"
 }
 ```
 
@@ -231,7 +383,7 @@ Explore OBEX objects by category, author, or search term.
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `term` | string | No | - | Search term |
-| `category` | string | No | - | Category filter (drivers, misc, display, demos, audio, motors, communication, sensors, tools) |
+| `category` | string | No | - | An OBEX category; call with no parameters for the current list with counts |
 | `author` | string | No | - | Author name filter |
 | `limit` | integer | No | 20 | Max results |
 
@@ -244,33 +396,113 @@ Explore OBEX objects by category, author, or search term.
 
 **Returns (no parameters - overview):**
 
+The categories are OBEX's own, with the current counts; an object listed under several categories is counted in each.
+
 ```json
 {
-  "type": "overview",
   "categories": {
-    "drivers": 57,
-    "misc": 42,
-    "display": 7
+    "3D Model": 3,
+    "Data Storage": 9,
+    "Display": 26,
+    "Fun": 5,
+    "Human Input": 13,
+    "Math": 7,
+    "Motor Control": 11,
+    "Other": 2,
+    "PCB Design": 3,
+    "Protocol": 32,
+    "Sensor": 30,
+    "Signals": 13,
+    "Snippet": 5,
+    "Speech and Sound": 9,
+    "Tool": 3
   },
-  "total_objects": 130,
   "top_authors": [
-    {"name": "Jon McPhalen (jonnymac)", "object_count": 44},
-    {"name": "Stephen M Moraco", "object_count": 17}
-  ]
+    {
+      "name": "Jon McPhalen",
+      "object_count": 47
+    },
+    {
+      "name": "Stephen M Moraco",
+      "object_count": 17
+    },
+    {
+      "name": "Wuerfel_21",
+      "object_count": 11
+    },
+    {
+      "name": "Chris Gadd",
+      "object_count": 5
+    },
+    {
+      "name": "Michael",
+      "object_count": 5
+    }
+  ],
+  "total_objects": 130,
+  "type": "overview"
 }
 ```
 
-**Returns (with category or term):**
+**Returns (with term):**
+
+Each hit carries `match_type` (what matched: `title`, `description` or `tag`). Shown for `term: "serial"`, `limit: 2`.
 
 ```json
 {
-  "type": "objects",
-  "category": "drivers",
+  "count": 2,
   "objects": [
-    {"object_id": "2811", "title": "...", "author": "...", "description": "..."},
-    {"object_id": "4047", "title": "...", "author": "...", "description": "..."}
+    {
+      "author": "Riley August",
+      "category": "Protocol",
+      "description": "Modular objects that interface with an ESP32 over a 2 pin serial UART, for the default Espressif \"AT firmware\".",
+      "match_type": "description",
+      "object_id": "2837",
+      "title": "ESP32"
+    },
+    {
+      "author": "Jon McPhalen",
+      "category": "Protocol",
+      "description": "P2 update to FullDuplexSerial for the P1, with numeric output changes and string formatting for complex output.",
+      "match_type": "title",
+      "object_id": "2842",
+      "title": "Full Duplex Serial"
+    }
   ],
-  "count": 49
+  "term": "serial",
+  "type": "objects"
+}
+```
+
+**Returns (with category):**
+
+Shown for `category: "Protocol"`, first 3 of 20 objects (truncated).
+
+```json
+{
+  "category": "Protocol",
+  "count": 20,
+  "objects": [
+    {
+      "author": "ManAtWork",
+      "description": "Code snippet showing how the P2 CORDIC does the Park (d/q) transform and its inverse, for AC or brushless servo motors.",
+      "object_id": "2811",
+      "title": "Park transformation"
+    },
+    {
+      "author": "Dennis Gately based on BR's original in the Propeller 1 Object repo",
+      "description": "Driver for the DS1302 timekeeping chip, converted from the Propeller 1 object by BR.",
+      "object_id": "2816",
+      "title": "DS1302_full"
+    },
+    {
+      "author": "Jon McPhalen",
+      "description": "Interface for the MikroElektronika RTC 10 Click board.",
+      "object_id": "2820",
+      "title": "Click RTC10"
+    }
+  ],
+  "type": "objects"
 }
 ```
 
@@ -280,8 +512,8 @@ Explore OBEX objects by category, author, or search term.
 {
   "name": "p2kb_obex_find",
   "arguments": {
-    "category": "drivers",
-    "limit": 10
+    "category": "Protocol",
+    "limit": 20
   }
 }
 ```
@@ -299,18 +531,39 @@ Download an OBEX object's zip from Parallax OBEX and extract it under the workin
 | `object_id` | string | Yes | - | Object ID, with or without the `OB` prefix |
 | `target_dir` | string | No | `./OBEX/<id>-<slug>/` | Extraction directory; must stay inside the working directory |
 
-**Returns:**
+**Returns (downloaded):**
 
 ```json
 {
-  "type": "download_complete",
-  "object_id": "2811",
-  "title": "Park transformation",
-  "extraction_path": "/home/user/project/OBEX/2811-park-transformation",
-  "files": ["README.md", "ParkTransformation.spin2"],
-  "file_count": 2,
-  "total_size": 5304,
-  "message": "Successfully downloaded and extracted 2 files to /home/user/project/OBEX/2811-park-transformation"
+  "extraction_path": "./OBEX/2842-full-duplex-serial",
+  "file_count": 4,
+  "files": [
+    "jm_format_strings_demo.spin2",
+    "jm_fullduplexserial.spin2",
+    "jm_nstr.spin2",
+    "README.md"
+  ],
+  "message": "Successfully downloaded and extracted 4 files to ./OBEX/2842-full-duplex-serial",
+  "object_id": "2842",
+  "title": "Full Duplex Serial",
+  "total_size": 35813,
+  "type": "download_complete"
+}
+```
+
+(`extraction_path` is shown relative here; the server reports the absolute path it extracted to.)
+
+**Returns (OBEX offers no download for the object):**
+
+Nothing is fetched. The result points at the object's OBEX page, whose description says where the code is.
+
+```json
+{
+  "message": "OBEX offers no download for object 4581; see its page https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/ — the description says where the code is.",
+  "obex_page": "https://obex.parallax.com/obex/isp-p2-rpi-iot-gateway/",
+  "object_id": "4581",
+  "title": "ISP P2 RPi IoT Gateway",
+  "type": "no_download"
 }
 ```
 
@@ -320,7 +573,7 @@ Download an OBEX object's zip from Parallax OBEX and extract it under the workin
 {
   "name": "p2kb_obex_download",
   "arguments": {
-    "object_id": "2811"
+    "object_id": "2842"
   }
 }
 ```
@@ -339,23 +592,24 @@ Get MCP server version and status information.
 
 ```json
 {
-  "mcp_version": "1.5.0",
-  "index_version": "3.5.0",
-  "filter_rule_id": "b431af2a9f515c11fe5fd982642c636c6f8843bf89ed2c3003ee0e28c04877ee",
-  "filter_rule_source": "index",
   "filter_engine_version": "1",
+  "filter_rule_id": "7dc618e436c3c56405e6de47fad9608840c2adad6689b1a115476c1e02674870",
+  "filter_rule_source": "index",
   "index": {
-    "total_entries": 1131,
-    "total_categories": 59,
-    "total_aliases": 3091,
-    "is_cached": true,
     "age_seconds": 0,
-    "needs_refresh": false
+    "is_cached": true,
+    "needs_refresh": false,
+    "total_aliases": 3598,
+    "total_categories": 60,
+    "total_entries": 1137
   },
+  "index_version": "3.6.0",
+  "mcp_version": "1.5.1",
   "obex": {
+    "cached_bodies": 130,
+    "parsed_objects": 130,
     "total_objects": 130,
-    "parsed_objects": 0,
-    "cached_bodies": 0
+    "unreadable_objects": 0
   }
 }
 ```
@@ -370,7 +624,10 @@ The `filter_*` fields report the delivery filter in effect (see [Content Filteri
 | `filter_rule_refused` | Present only when the index carries a rule this server cannot apply: `{"format": <int>, "reason": "<why>"}`. The server keeps filtering under the last-good or built-in rule. |
 
 `obex.parsed_objects` counts objects held parsed in memory; `obex.cached_bodies` counts object files
-held in the content cache.
+held in the content cache. `obex.unreadable_objects` counts objects whose file could not be read or
+parsed; each is left out of OBEX search and listing results, which name it in an `unreadable_objects`
+list (`[{"object_id", "error"}]`). If the count itself cannot be taken it
+is `null` and `unreadable_objects_error` says why.
 
 ---
 

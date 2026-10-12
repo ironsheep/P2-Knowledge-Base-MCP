@@ -38,19 +38,19 @@ proxy, and a recording proxy sees no connection attempt from any package.
 
 ## Coverage
 
-Measured 2026-10-07 with `go test -coverprofile` (statements). **Total: 79.1%.**
+Measured 2026-10-12 with `go test -coverprofile` (statements). **Total: 82.9%.**
 
 | Package | Coverage | What its tests pin |
 |---------|----------|--------------------|
 | `internal/logging` | 100.0% | Level parsing, the default level, which lines each level writes |
 | `internal/filter` | 96.7% | The format-1 delivery filter: the published `rule_id`, every refused rule block, and an engine table whose cases each fail on the pre-1.5.0 filter |
-| `internal/kbtest` | 94.3% | The test KB host itself: index round trip, 404s, hit counts, body sequences, the response gate |
+| `internal/kbtest` | 89.2% | The test KB host itself: index round trip, 404s, hit counts, body sequences, the response gate |
 | `internal/fetch` | 90.7% | Base URL resolution, cache-busting only when asked, errors naming the URL, one debug line per request |
 | `internal/index` | 87.0% | Index loading and refresh, alias resolution, search, and the delivery-filter rule in effect (index, last-good, built-in, refused) |
-| `internal/cache` | 84.3% | The mtime- and sha256-aware cache tiers, the rule stamp and its discards, and the race guard that keeps a superseded filtering out of the cache |
+| `internal/cache` | 84.5% | The mtime- and sha256-aware cache tiers, the rule stamp and its discards, and the race guard that keeps a superseded filtering out of the cache |
 | `internal/paths` | 75.0% | Cache directory resolution for each install layout |
-| `internal/obex` | 73.2% | OBEX objects read through the main index and the cache, search, categories, authors, and download extraction |
-| `internal/server` | 66.9% | Tool routing and argument errors, `p2kb_get`, `p2kb_version`, `p2kb_refresh`, and the OBEX tool results |
+| `internal/obex` | 85.6% | OBEX objects read through the main index and the cache, string-or-list categories, unreadable objects reported (never dropped), `full_metadata` decoded from the filtered body, search, authors, and downloads only from an object's own link |
+| `internal/server` | 74.7% | Tool routing and argument errors, `p2kb_get`, `p2kb_version`, `p2kb_refresh`, and the OBEX tool result shapes, including the `no_download` result |
 | `cmd/p2kb-mcp` | 0.0% | Entry point: flag handling and startup only |
 
 Uncovered code is mostly error paths that need a failing filesystem, and the stdin/stdout loop in

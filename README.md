@@ -58,7 +58,7 @@ Ask about COGs, HUB memory, Smart Pins, clock configuration, and other hardware 
 
 ### OBEX Community Code
 
-Search and discover the ~113 community objects in the Parallax Object Exchange — drivers, libraries, and examples contributed by the P2 community.
+Search and discover the 130 community objects in the Parallax Object Exchange — drivers, libraries, and examples contributed by the P2 community.
 
 > *"Find me an OBEX object for driving WS2812B LEDs."*
 >
@@ -124,7 +124,7 @@ The knowledge base covers:
 | **Spin2** | Built-in methods with parameters, return values, and usage |
 | **Architecture** | COG, HUB, Smart Pins, and hardware documentation |
 | **Guides** | Quick reference cards and getting-started material |
-| **OBEX** | ~113 community code objects — drivers, libraries, and demos |
+| **OBEX** | 130 community code objects — drivers, libraries, and demos |
 
 ---
 
