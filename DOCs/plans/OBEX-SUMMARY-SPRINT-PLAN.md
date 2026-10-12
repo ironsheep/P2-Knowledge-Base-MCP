@@ -1,7 +1,7 @@
 # OBEX-SUMMARY Sprint Plan — p2kb-mcp 1.5.1
 
-**Status:** **planned 2026-10-12** — not started. Open question §Q1 (release number) must be answered
-before `sprint-start`.
+**Status:** **started 2026-10-12** — outgoing build **1.5.1** (Stephen, 2026-10-12; `VERSION`
+currently `1.5.0`). See *Sprint start* below.
 **Contract:** `DOCs/UPDATES-NO-COMMIT/MCP-OBEX-SUMMARY-CHANGE-REQUEST.md` — the KB's change request,
 cited as **CR §n**. Its §3.1–3.6 are agreed; its §6 probes O1–O7 are the acceptance. This plan does
 not restate it; it says where in our code each requirement lands.
@@ -16,15 +16,25 @@ hygiene test passes.
 
 ---
 
-## Open Questions
+## Sprint start — 2026-10-12
 
-**Q1 — release number.** Stephen set the target as **1.5.1** (relayed in CR's header, "Stephen,
-2026-10-11"). `central:changelog-voicing` §1.6 makes a breaking change to the public surface a
-**major** bump, and §§1–3 below break `p2kb_obex_get`'s result (`metadata` keys removed,
-`download_url` may be absent, `category` may be a list). **Recommendation: 1.5.1**, as ruled — the
-breaking keys are ones that never carried information (`quality` always 0, `version`/`file_size`
-always `""`, a dead download link), most of the release repairs a live defect, and the entry is
-marked BREAKING either way. Stephen to confirm or choose 2.0.0.
+- **Build:** 1.5.1, agreed.
+- **Tree:** clean at `8d472ea` apart from this plan's start edits. Untracked and deliberate:
+  `DOCs/UPDATES-NO-COMMIT/` (the KB's change request and specs; never committed). No open plan
+  other than this one; both earlier sprints are closed and archived.
+- **Tracking:** ready. 0 completed tasks to archive, 0 in progress, 0 paused; context 1 key (the
+  resume pointer); `MEMORY.md` 9 lines. One pending task, «#12» (PyYAML in the devcontainer),
+  stays out of the sprint, as decided 2026-10-07 — unrelated to OBEX.
+- **Entry baseline** (Linux devcontainer, Go 1.23, no network needed): `go build ./...`,
+  `go vet ./...`, `gofmt -l` all clean; `CGO_ENABLED=1 go test -race -count=1 -v ./...` → **300
+  run, 300 pass, 0 fail, 0 skip**; `scripts/test-installer-hygiene.sh` → all invariants hold.
+
+## Release number — resolved
+
+**1.5.1** — Stephen, 2026-10-12: *"1.5.1, go ahead."* Chosen knowing `central:changelog-voicing`
+§1.6 calls a breaking change a major bump: the keys removed never carried information, most of the
+release repairs a live defect, the KB's spec rows and O1 already name 1.5.1, and the entry is marked
+BREAKING.
 
 ---
 
@@ -327,6 +337,6 @@ links there rather than restating the schema.
 
 ## Open Questions
 
-Q1 above (release number). No others: every design call is stated for veto — the `Category` type
+None. Every design call is stated for veto — the `Category` type
 (§1), `full_metadata` decoding and memoizing (§2), `no_download` as a success result (§4), the
 shared walk and `unreadable_objects` (§5), one fixture set in `kbtest` (§7).
