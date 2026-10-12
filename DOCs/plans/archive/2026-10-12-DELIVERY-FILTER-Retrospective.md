@@ -79,10 +79,12 @@ Candidates (for Stephen's verdict; none applied here):
 
 | Entry | Proposed verdict | Why |
 |---|---|---|
-| *simplify fan-out is disproportionate for tiny diffs* (2026-06-02) | **Addressed** — delete | Central `task-handoff` §1 now documents running `simplify`'s single-pass variant under `arbiter-serial`, saying which variant ran — the change the entry asked for. |
+| *simplify fan-out is disproportionate for tiny diffs* (2026-06-02) | **Addressed** — deleted 2026-10-12 | Central `task-handoff` §1 now documents running `simplify`'s single-pass variant under `arbiter-serial`, saying which variant ran — the change the entry asked for. |
 
-The six candidates above are not yet in the file; on Stephen's verdicts each is either applied or
-entered there.
+**Verdicts (Stephen, 2026-10-12):**
+- Candidate 1 — **approved for central**: hook on `todo_start` and `todo_complete`. Entered in the
+  candidates buffer as a PENDING nomination for the promotion close-out.
+- Candidates 2–6 — awaiting verdict.
 
 ### Punch list
 
