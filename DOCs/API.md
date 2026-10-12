@@ -385,7 +385,7 @@ Explore OBEX objects by category, author, or search term.
 | `term` | string | No | - | Search term |
 | `category` | string | No | - | An OBEX category; call with no parameters for the current list with counts |
 | `author` | string | No | - | Author name filter |
-| `limit` | integer | No | 20 | Max results |
+| `limit` | integer | No | - | Max results; omit it to get every match |
 
 **Behavior:**
 
@@ -476,12 +476,12 @@ Each hit carries `match_type` (what matched: `title`, `description` or `tag`). S
 
 **Returns (with category):**
 
-Shown for `category: "Protocol"`, first 3 of 20 objects (truncated).
+Shown for `category: "Protocol"` with no `limit`, so every match is returned; first 3 of 32 objects shown (truncated).
 
 ```json
 {
   "category": "Protocol",
-  "count": 20,
+  "count": 32,
   "objects": [
     {
       "author": "ManAtWork",
@@ -512,8 +512,7 @@ Shown for `category: "Protocol"`, first 3 of 20 objects (truncated).
 {
   "name": "p2kb_obex_find",
   "arguments": {
-    "category": "Protocol",
-    "limit": 20
+    "category": "Protocol"
   }
 }
 ```

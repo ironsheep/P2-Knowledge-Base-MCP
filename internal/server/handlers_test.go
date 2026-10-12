@@ -536,6 +536,36 @@ func findOBEX(t *testing.T, srv *Server, args string) map[string]interface{} {
 	return extractResultMap(t, resp)
 }
 
+// TestOBEXFindReturnsEveryMatchWithoutALimit: with no limit, a category, a
+// term and an author each return every match (count equals the overview's
+// count), past the 20 that used to be a silent default; an explicit limit
+// still cuts the list.
+func TestOBEXFindReturnsEveryMatchWithoutALimit(t *testing.T) {
+	const n = 25
+	srv, r := newTestServer(t)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("%d", 9100+i)
+		r.AddFile("p2kbCommunity"+id, obex.OBEXPath+"/"+id+".yaml", 1700000000, fmt.Sprintf(
+			"object_metadata:\n  object_id: '%s'\n  title: Serial Widget %d\n  author: Many Author\n  functionality:\n    category: [Protocol, Snippet]\n", id, i))
+	}
+
+	overview := findOBEX(t, srv, `{}`)
+	if got := overview["categories"].(map[string]interface{})["Protocol"]; got != float64(n) {
+		t.Fatalf("overview Protocol = %v, want %d", got, n)
+	}
+	for _, args := range []string{`{"category":"Protocol"}`, `{"term":"serial"}`, `{"author":"Many"}`} {
+		res := findOBEX(t, srv, args)
+		if res["count"] != float64(n) || len(findIDs(t, res)) != n {
+			t.Errorf("%s: count = %v with %d objects, want every match (%d)", args, res["count"], len(findIDs(t, res)), n)
+		}
+	}
+	for _, args := range []string{`{"category":"Protocol","limit":2}`, `{"term":"serial","limit":2}`, `{"author":"Many","limit":2}`} {
+		if res := findOBEX(t, srv, args); res["count"] != float64(2) || len(findIDs(t, res)) != 2 {
+			t.Errorf("%s: count = %v, want 2", args, res["count"])
+		}
+	}
+}
+
 // findIDs returns the sorted object_id of each object in a find result.
 func findIDs(t *testing.T, res map[string]interface{}) []string {
 	t.Helper()

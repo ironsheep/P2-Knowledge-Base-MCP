@@ -168,6 +168,11 @@ description; `handlers.go:360-488` passes `category` to `Search`/`BrowseCategory
 - Overview categories come from §1's `GetCategories`; filters from §1's `Has`. Result objects carry
   §1's `category` (string or list).
 - Result shape otherwise as on 1.5.0 (O6, O7).
+- **No default limit** (added 2026-10-12, Stephen chose option A): `limit` defaulted to 20
+  (`handlers.go:375`) and every list path cut to it while `count` reported the cut length — a silent
+  cap (D2) that fails O7 as written (live: overview Protocol 32, browse returned 20). With no
+  `limit`, term, category and author results return every match; an explicit `limit` is the
+  caller's choice and is honoured as today. Tool description and `API.md` say so.
 
 **Verify.**
 - Normal: no-param overview over a fixture with list and string categories → per-element counts;
@@ -176,6 +181,9 @@ description; `handlers.go:360-488` passes `category` to `Search`/`BrowseCategory
   description, match_type, object_id, title}], term, type: "objects"}` (O6).
 - Edge: `category: "protocol"` (case) matches; a category no object has → empty result, not an
   error.
+- No default limit: with more than 20 objects in a category, `category` with no `limit` returns
+  all of them (`count` equals the overview's count) — fails on the 20 default; the same for a term
+  and an author with more than 20 matches; `limit: 2` still returns 2 (O6).
 
 ## 4. `p2kb_obex_download` — no download, no fetch
 
@@ -347,7 +355,10 @@ shared walk and `unreadable_objects` (§5), one fixture set in `kbtest` (§7).
 
 ## Revisions
 
-(none)
+- 2026-10-12 — §3 gains *No default limit* («#34»). Found at «#33»'s pre-release O7 probe against
+  the live KB: the find default `limit: 20` silently cut the Protocol browse to 20 of 32. Stephen
+  chose removing the default over adding a `total` key (which would change O6's shape and need a KB
+  change).
 
 ## Tasks — section ↔ task cross-reference
 
@@ -363,6 +374,7 @@ Verify bullets **verbatim** (retrospective candidate 2, applied here ahead of ce
 | §4 | `p2kb_obex_download`: `no_download`; id-built URL deleted | «#30» | 5 | task-standard |
 | §6 | 13 log-only handler tests assert outcomes | «#31» | 6 | task-standard |
 | §8 | Docs, samples, OBEX spec re-import | «#32» | 7 | task-standard |
+| §3 (revision) | `p2kb_obex_find`: no default limit | «#34» | 7.5 | inline |
 | §9 | Release 1.5.1; O1–O7 | «#33» | 8 | inline |
 
 §0 (intent and rulings) has no row by design. «#12» (PyYAML) is outside the sprint, moved to seq 9.

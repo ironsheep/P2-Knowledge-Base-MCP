@@ -370,9 +370,8 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 		Term     string `json:"term"`
 		Category string `json:"category"`
 		Author   string `json:"author"`
-		Limit    int    `json:"limit"`
+		Limit    int    `json:"limit"` // 0: every match; a list is cut only when the caller asks
 	}
-	params.Limit = 20 // default
 
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &params); err != nil {
@@ -420,7 +419,7 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 					"category":    obj.Category,
 					"description": obj.DescriptionShort,
 				})
-				if len(filtered) >= params.Limit {
+				if params.Limit > 0 && len(filtered) >= params.Limit {
 					break
 				}
 			}
@@ -468,7 +467,7 @@ func (s *Server) handleOBEXFind(id interface{}, args json.RawMessage) *MCPRespon
 			return s.errorResponse(id, -32000, "Failed to browse category", err.Error())
 		}
 
-		if len(objects) > params.Limit {
+		if params.Limit > 0 && len(objects) > params.Limit {
 			objects = objects[:params.Limit]
 		}
 

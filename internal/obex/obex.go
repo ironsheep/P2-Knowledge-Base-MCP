@@ -415,7 +415,8 @@ func (m *Manager) tryErrorRefresh() bool {
 }
 
 // Search searches OBEX objects by term, and returns the objects that could not
-// be read, whether or not they could have matched.
+// be read, whether or not they could have matched. A limit of 0 or less
+// returns every match.
 func (m *Manager) Search(term string, category string, language string, limit int) ([]SearchResult, []Unreadable, error) {
 	objects, err := m.objectFiles()
 	if err != nil {
@@ -424,10 +425,6 @@ func (m *Manager) Search(term string, category string, language string, limit in
 
 	if term == "" {
 		return nil, nil, fmt.Errorf("search term required")
-	}
-
-	if limit <= 0 {
-		limit = 20
 	}
 
 	// Expand search terms
@@ -467,7 +464,7 @@ func (m *Manager) Search(term string, category string, language string, limit in
 				MatchType:        matchType,
 			})
 
-			if len(results) >= limit {
+			if limit > 0 && len(results) >= limit {
 				break
 			}
 		}
