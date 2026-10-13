@@ -89,38 +89,41 @@ Explore and discover P2KB documentation.
 |------|------|----------|---------|-------------|
 | `term` | string | No | - | Search term |
 | `category` | string | No | - | Category to browse |
-| `limit` | integer | No | 50 | Max results |
+| `limit` | integer | No | - | Max results; omit it to get every match |
 
 **Behavior:**
 
 - **No parameters**: Returns list of all categories with counts
 - **term only**: Searches for matching keys
 - **category only**: Lists all keys in that category
-- **term + category**: Searches within category
+- **term + category**: Searches within category; an unknown category returns `category_not_found` with `available_categories`
 
 **Returns (no parameters - categories):**
+
+Two of the 60 categories shown (truncated):
 
 ```json
 {
   "type": "categories",
   "categories": {
-    "pasm2_branch": 37,
-    "pasm2_math": 45,
-    "spin2_pin": 12
+    "pasm2_branch": 36,
+    "pasm2_math": 110
   },
-  "total_categories": 47,
-  "total_entries": 970
+  "total_categories": 60,
+  "total_entries": 1137
 }
 ```
 
 **Returns (with category):**
 
+Every key in the category (no `limit`); first 3 of 110 shown (truncated):
+
 ```json
 {
   "type": "keys",
   "category": "pasm2_math",
-  "keys": ["p2kbPasm2Add", "p2kbPasm2Sub", "p2kbPasm2Mul"],
-  "count": 45
+  "keys": ["p2kbPasm2Abs", "p2kbPasm2Add", "p2kbPasm2Adds"],
+  "count": 110
 }
 ```
 
@@ -130,8 +133,15 @@ Explore and discover P2KB documentation.
 {
   "type": "keys",
   "term": "mov",
-  "keys": ["p2kbPasm2Mov", "p2kbPasm2Movbyts"],
-  "count": 2
+  "keys": [
+    "p2kbPasm2Mov",
+    "p2kbPasm2Movbyts",
+    "p2kbSpin2Bytemove",
+    "p2kbSpin2Longmove",
+    "p2kbSpin2Movbyts",
+    "p2kbSpin2Wordmove"
+  ],
+  "count": 6
 }
 ```
 

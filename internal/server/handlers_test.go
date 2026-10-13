@@ -435,6 +435,117 @@ func TestHandleFindWithTerm(t *testing.T) {
 	}
 }
 
+// serveManyKeys serves 60 keys "keyA00".. in category big and 11 keys
+// "keyB00".. in category small, so term "key" matches 71 keys overall and the
+// first 50 in key order are all in big.
+func serveManyKeys(r *kbtest.Remote) {
+	idx := r.Index()
+	idx.Files = map[string]kbtest.FileEntry{}
+	idx.Categories = map[string][]string{}
+	add := func(prefix, cat string, n int) {
+		for i := 0; i < n; i++ {
+			k := fmt.Sprintf("%s%02d", prefix, i)
+			idx.Files[k] = kbtest.FileEntry{Path: "deliverables/ai/P2/" + k + ".yaml", Mtime: 1700000000}
+			idx.Categories[cat] = append(idx.Categories[cat], k)
+		}
+	}
+	add("keyA", "big", 60)
+	add("keyB", "small", 11)
+	r.SetIndex(idx)
+}
+
+// findKeys runs p2kb_find with the given arguments and decodes the result.
+func findKeys(t *testing.T, srv *Server, args string) map[string]interface{} {
+	t.Helper()
+	resp := srv.handleFind(1, json.RawMessage(args))
+	if resp.Error != nil {
+		t.Fatalf("handleFind(%s): %v", args, resp.Error)
+	}
+	return extractResultMap(t, resp)
+}
+
+// TestFindReturnsEveryMatchWithoutALimit: with no limit a category, a term and
+// a term within a category each return every match, past the 50 that used to
+// be a silent default (and, for term + category, a cut made before the filter).
+func TestFindReturnsEveryMatchWithoutALimit(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveManyKeys(r)
+
+	for _, tc := range []struct {
+		args string
+		want int
+	}{
+		{`{"category":"big"}`, 60},
+		{`{"term":"key"}`, 71},
+		{`{"term":"key","category":"small"}`, 11},
+		{`{"term":"key","category":"big"}`, 60},
+	} {
+		res := findKeys(t, srv, tc.args)
+		keys, _ := res["keys"].([]interface{})
+		if res["type"] != "keys" || res["count"] != float64(tc.want) || len(keys) != tc.want {
+			t.Errorf("%s: type %v count %v with %d keys, want every match (%d)", tc.args, res["type"], res["count"], len(keys), tc.want)
+		}
+	}
+}
+
+// TestFindExplicitLimitCutsAfterTheCategoryFilter: limit 2 returns 2 on each
+// path, and term + category + limit cuts the in-category matches, not the
+// term's matches (key order puts all 50 first matches outside "small").
+func TestFindExplicitLimitCutsAfterTheCategoryFilter(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveManyKeys(r)
+
+	for _, args := range []string{
+		`{"category":"big","limit":2}`,
+		`{"term":"key","limit":2}`,
+		`{"term":"key","category":"small","limit":2}`,
+	} {
+		res := findKeys(t, srv, args)
+		keys, _ := res["keys"].([]interface{})
+		if res["count"] != float64(2) || len(keys) != 2 {
+			t.Errorf("%s: count %v with %d keys, want 2", args, res["count"], len(keys))
+		}
+	}
+	res := findKeys(t, srv, `{"term":"key","category":"small","limit":2}`)
+	if keys, _ := res["keys"].([]interface{}); !reflect.DeepEqual(keys, []interface{}{"keyB00", "keyB01"}) {
+		t.Errorf("keys = %v, want the first two in-category matches [keyB00 keyB01]", res["keys"])
+	}
+}
+
+// TestFindTermWithUnknownCategoryIsCategoryNotFound: a term with a category the
+// index lacks answers as the category-only path does, instead of returning
+// unfiltered keys.
+func TestFindTermWithUnknownCategoryIsCategoryNotFound(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveManyKeys(r)
+
+	withTerm := findKeys(t, srv, `{"term":"key","category":"no_such_cat"}`)
+	alone := findKeys(t, srv, `{"category":"no_such_cat"}`)
+	if withTerm["type"] != "category_not_found" || withTerm["category"] != "no_such_cat" {
+		t.Fatalf("result = %v, want type category_not_found for no_such_cat", withTerm)
+	}
+	if !reflect.DeepEqual(withTerm, alone) {
+		t.Errorf("term + unknown category = %v, want the category-only result %v", withTerm, alone)
+	}
+	if avail, _ := withTerm["available_categories"].([]interface{}); len(avail) != 2 {
+		t.Errorf("available_categories = %v, want big and small", withTerm["available_categories"])
+	}
+}
+
+// TestFindCategoryWithUnreadableIndexIsAnError: when the index cannot be read,
+// a category lookup is an error, never "category not found".
+func TestFindCategoryWithUnreadableIndexIsAnError(t *testing.T) {
+	srv, r := newTestServer(t)
+	r.Close()
+
+	for _, args := range []string{`{"category":"big"}`, `{"term":"key","category":"big"}`} {
+		resp := srv.handleFind(1, json.RawMessage(args))
+		if resp.Error == nil {
+			t.Errorf("%s: result = %v, want an error", args, resp.Result)
+		}
+	}
+}
+
 // Test p2kb_obex_get
 
 func TestHandleOBEXGetMissingQuery(t *testing.T) {

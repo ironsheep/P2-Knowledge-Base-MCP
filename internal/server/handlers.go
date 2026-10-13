@@ -9,6 +9,7 @@ import (
 
 	"github.com/ironsheep/p2kb-mcp/internal/cache"
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
+	"github.com/ironsheep/p2kb-mcp/internal/index"
 	"github.com/ironsheep/p2kb-mcp/internal/logging"
 	"github.com/ironsheep/p2kb-mcp/internal/obex"
 )
@@ -168,14 +169,29 @@ func (s *Server) contentResponse(id interface{}, key string, resolvedFrom string
 	return s.successResponse(id, result)
 }
 
+// categoryKeysError is p2kb_find's answer when a category's keys cannot be
+// listed: category_not_found for a category the index does not have, an error
+// when the index itself could not be read (never rendered as "not found").
+func (s *Server) categoryKeysError(id interface{}, category string, err error) *MCPResponse {
+	if !errors.Is(err, index.ErrCategoryNotFound) {
+		return s.errorResponse(id, -32000, "Failed to read the index", err.Error())
+	}
+	return s.successResponse(id, map[string]interface{}{
+		"type":                 "category_not_found",
+		"category":             category,
+		"message":              fmt.Sprintf("Category '%s' not found", category),
+		"available_categories": s.indexManager.GetCategories(),
+	})
+}
+
 // handleFind implements p2kb_find - explore/discover documentation.
+// With no limit every match is returned; an explicit limit is the caller's.
 func (s *Server) handleFind(id interface{}, args json.RawMessage) *MCPResponse {
 	var params struct {
 		Term     string `json:"term"`
 		Category string `json:"category"`
 		Limit    int    `json:"limit"`
 	}
-	params.Limit = 50 // default
 
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &params); err != nil {
@@ -200,13 +216,7 @@ func (s *Server) handleFind(id interface{}, args json.RawMessage) *MCPResponse {
 	if params.Term == "" && params.Category != "" {
 		keys, err := s.indexManager.GetCategoryKeys(params.Category)
 		if err != nil {
-			categories := s.indexManager.GetCategories()
-			return s.successResponse(id, map[string]interface{}{
-				"type":                 "category_not_found",
-				"category":             params.Category,
-				"message":              fmt.Sprintf("Category '%s' not found", params.Category),
-				"available_categories": categories,
-			})
+			return s.categoryKeysError(id, params.Category, err)
 		}
 
 		if params.Limit > 0 && len(keys) > params.Limit {
@@ -221,25 +231,34 @@ func (s *Server) handleFind(id interface{}, args json.RawMessage) *MCPResponse {
 		})
 	}
 
-	// Search by term
-	keys := s.indexManager.Search(params.Term, params.Limit)
+	// Search by term. With a category the search is unlimited: the caller's
+	// limit applies after the category filter, never before it.
+	searchLimit := params.Limit
+	if params.Category != "" {
+		searchLimit = 0
+	}
+	keys := s.indexManager.Search(params.Term, searchLimit)
 
 	// If category specified, filter results
 	if params.Category != "" {
 		categoryKeys, err := s.indexManager.GetCategoryKeys(params.Category)
-		if err == nil {
-			categorySet := make(map[string]bool)
-			for _, k := range categoryKeys {
-				categorySet[k] = true
-			}
+		if err != nil {
+			return s.categoryKeysError(id, params.Category, err)
+		}
+		categorySet := make(map[string]bool)
+		for _, k := range categoryKeys {
+			categorySet[k] = true
+		}
 
-			filtered := make([]string, 0)
-			for _, k := range keys {
-				if categorySet[k] {
-					filtered = append(filtered, k)
-				}
+		filtered := make([]string, 0)
+		for _, k := range keys {
+			if categorySet[k] {
+				filtered = append(filtered, k)
 			}
-			keys = filtered
+		}
+		keys = filtered
+		if params.Limit > 0 && len(keys) > params.Limit {
+			keys = keys[:params.Limit]
 		}
 	}
 

@@ -3,6 +3,7 @@ package index
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -673,6 +674,10 @@ func (m *Manager) GetCategoriesWithCounts() map[string]int {
 	return counts
 }
 
+// ErrCategoryNotFound is GetCategoryKeys' error for a category the index does
+// not have; any other error means the index itself could not be read.
+var ErrCategoryNotFound = errors.New("category not found")
+
 // GetCategoryKeys returns all keys in a category.
 // Category lookup is case-insensitive.
 func (m *Manager) GetCategoryKeys(category string) ([]string, error) {
@@ -697,7 +702,7 @@ func (m *Manager) GetCategoryKeys(category string) ([]string, error) {
 		}
 	}
 	if !ok {
-		return nil, fmt.Errorf("category not found: %s", category)
+		return nil, fmt.Errorf("%w: %s", ErrCategoryNotFound, category)
 	}
 
 	result := make([]string, len(keys))

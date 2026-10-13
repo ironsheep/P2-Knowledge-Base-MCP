@@ -306,6 +306,52 @@ Each item names its guide where one governs (`CONFORMANCE_GUIDES`).
   release commit; **before the commit, every item this plan marks BREAKING is checked against the
   drafted entry** (retrospective candidate 4, applied here).
 
+## 10. Core-tool list integrity — nothing cut or dropped silently
+
+**Why.** Stephen, 2026-10-12, after the «#34»/«#35» rule: *"A, fix all six"* — a sweep for the
+same class across every tool (every list cut, dropped error and `err → continue` in `internal/`),
+each measured live on the build of 759fe56 against the live KB. Outside CR scope; no O-probe covers
+it. D2: a caller must be able to tell a complete list from a cut one, and a filter that failed from
+one that matched.
+
+**Current code (measured).**
+1. `p2kb_find category:` — `handleFind` defaults `limit` to 50 (`handlers.go:178`) and cuts the
+   category's keys to it (`:212-213`), `count` = the cut length. Live: `pasm2_math` 110 → 50,
+   `pasm2_event` 72 → 50.
+2. `p2kb_find term:` — `index.Search(term, 50)` (`handlers.go:225`, cut at `index.go:366`). Live:
+   `pin` 473 → 50.
+3. `p2kb_find term + category` — the cut happens **before** the category filter (`:225` then
+   `:228-243`), so in-category matches are lost. Live: `pin` + `spin2_math` → 0 returned, 11 real.
+4. `p2kb_find term + unknown category` — `GetCategoryKeys`' error is ignored (`:229-230`), so the
+   unfiltered keys come back as `type: keys`. Live: `mov` + `no_such_cat` → 6 keys.
+5. `p2kb_get` suggestions — `MatchQuery` keeps the top 20 (`index.go:459-461`) and the no-match
+   fallback searches with a fixed 10 (`handlers.go:77`); neither says so.
+6. JSON-RPC input — a line that does not parse is logged and gets no response (`server.go:84-86`;
+   JSON-RPC 2.0 requires `-32700 Parse error` with `id: null`); and a line over the scanner's 1 MB
+   buffer (`server.go:73`) ends the read loop, so the server exits instead of answering that one
+   request.
+
+**Target.**
+- `p2kb_find`: no default limit (as §3's rule for `p2kb_obex_find`); an explicit `limit` is the
+  caller's and applies **after** the category filter; an unknown `category` with a `term` answers
+  `category_not_found` with `available_categories`, as the category-only path already does. Tool
+  description and `API.md` say so.
+- `p2kb_get`: suggestions list every match — no top-20 cut in `MatchQuery`, no fixed 10 in the
+  fallback. Ranking (score order) unchanged.
+- Server loop: an unparseable line gets `{"jsonrpc":"2.0","id":null,"error":{"code":-32700,…}}`; an
+  oversized line gets the same kind of error response and the loop continues (read lines without a
+  fixed cap that ends the loop).
+
+**Verify.**
+- Normal: a category with more than 50 keys returns all of them (`count` = the category's count);
+  a term with more than 50 matches returns all; term + category returns every in-category match
+  even when the term has more than 50 matches overall; `limit: 2` returns 2 in each.
+- Edge: term + unknown category → `category_not_found`; `p2kb_get` with more than 20 scored matches
+  → every one as a suggestion, highest score first; the no-match fallback with more than 10 → all.
+- Error: a malformed JSON line → a `-32700` response with `id: null`, and the next valid request is
+  still answered; a line over 1 MB → an error response, and the next valid request is still answered.
+- Each test fails on the code at 759fe56 (shown once).
+
 ## Documentation Blast Radius
 
 `DOC_AUDIT_COMMAND` (`python3 docs-src/build/generate.py --check`) cannot run in the devcontainer
@@ -363,6 +409,9 @@ shared walk and `unreadable_objects` (§5), one fixture set in `kbtest` (§7).
   Stephen: "yes please"). It searched with a fixed limit of 10 and nothing said so; live: `led` 37
   matches → 10 suggestions, `full duplex serial` 16 → 10. Suggestions now list every match (O5
   checks each entry's keys, unchanged).
+- 2026-10-12 — §10 added (core-tool list integrity, «#36»-«#38»): Stephen, after the sweep the
+  §3 rule prompted, *"A, fix all six"*. Row 6 widened by the arbiter to the same family's oversized
+  line, which ends the read loop (D5: the whole family when found).
 
 ## Tasks — section ↔ task cross-reference
 
@@ -380,6 +429,9 @@ Verify bullets **verbatim** (retrospective candidate 2, applied here ahead of ce
 | §8 | Docs, samples, OBEX spec re-import | «#32» | 7 | task-standard |
 | §3 (revision) | `p2kb_obex_find`: no default limit | «#34» | 7.5 | inline |
 | §3 (revision) | `p2kb_obex_get` suggestions: every match | «#35» | 7.6 | inline |
+| §10 rows 1-4 | `p2kb_find`: no default limit, limit after filter, unknown category | «#36» | 7.7 | task-standard |
+| §10 row 5 | `p2kb_get` suggestions: every match | «#37» | 7.8 | inline |
+| §10 row 6 | Server loop: parse error and oversized line answered, loop continues | «#38» | 7.9 | inline |
 | §9 | Release 1.5.1; O1–O7 | «#33» | 8 | inline |
 
 §0 (intent and rulings) has no row by design. «#12» (PyYAML) is outside the sprint, moved to seq 9.
