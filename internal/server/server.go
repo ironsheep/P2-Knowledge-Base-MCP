@@ -3,8 +3,10 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -64,40 +66,71 @@ func New(version string) *Server {
 	return s
 }
 
+// maxRequestLine bounds one request line held in memory. A longer line is
+// answered with an error and skipped; the server keeps serving.
+const maxRequestLine = 1024 * 1024
+
 // Run starts the MCP server's main loop, processing requests from stdin.
 func (s *Server) Run() error {
-	scanner := bufio.NewScanner(os.Stdin)
-	// Increase buffer size for large requests
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	return s.serve(os.Stdin, os.Stdout)
+}
 
-	encoder := json.NewEncoder(os.Stdout)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
+// serve answers one JSON-RPC request per line of in, writing responses to out,
+// until in ends. A line that does not parse, or is too long to hold, gets an
+// error response with id null (JSON-RPC 2.0), never silence.
+func (s *Server) serve(in io.Reader, out io.Writer) error {
+	reader := bufio.NewReaderSize(in, 64*1024)
+	encoder := json.NewEncoder(out)
+	reply := func(resp *MCPResponse) {
+		if err := encoder.Encode(resp); err != nil {
+			log.Printf("Failed to encode response: %v", err)
 		}
+	}
 
-		var req MCPRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			log.Printf("Failed to parse request: %v", err)
-			continue
-		}
-
-		resp := s.handleRequest(&req)
-		if resp != nil {
-			if err := encoder.Encode(resp); err != nil {
-				log.Printf("Failed to encode response: %v", err)
+	for {
+		line, tooLong, readErr := readLine(reader, maxRequestLine)
+		switch {
+		case tooLong:
+			log.Printf("Request line over %d bytes; answered with an error", maxRequestLine)
+			reply(&MCPResponse{JSONRPC: "2.0", Error: &MCPError{
+				Code: -32600, Message: "Invalid Request", Data: fmt.Sprintf("request line over %d bytes", maxRequestLine)}})
+		case len(line) > 0:
+			var req MCPRequest
+			if err := json.Unmarshal(line, &req); err != nil {
+				log.Printf("Failed to parse request: %v", err)
+				reply(&MCPResponse{JSONRPC: "2.0", Error: &MCPError{Code: -32700, Message: "Parse error", Data: err.Error()}})
+			} else if resp := s.handleRequest(&req); resp != nil {
+				reply(resp)
 			}
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanner error: %w", err)
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return fmt.Errorf("read error: %w", readErr)
+		}
 	}
+}
 
-	return nil
+// readLine reads one line (without surrounding whitespace) from r. A line
+// longer than max is read to its end and discarded, and reported as tooLong.
+// err is io.EOF after the last line.
+func readLine(r *bufio.Reader, max int) (line []byte, tooLong bool, err error) {
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if !tooLong {
+			if len(line)+len(chunk) > max {
+				tooLong, line = true, nil
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return bytes.TrimSpace(line), tooLong, err
+	}
 }
 
 // Supported MCP protocol versions, with serverMaxVersion as the default response.

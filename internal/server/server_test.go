@@ -1,16 +1,74 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ironsheep/p2kb-mcp/internal/fetch"
 	"github.com/ironsheep/p2kb-mcp/internal/filter"
 	"github.com/ironsheep/p2kb-mcp/internal/index"
 )
+
+// serveLines runs the server loop over input and decodes each response line.
+func serveLines(t *testing.T, srv *Server, input string) []MCPResponse {
+	t.Helper()
+	var out bytes.Buffer
+	if err := srv.serve(strings.NewReader(input), &out); err != nil {
+		t.Fatalf("serve: %v", err)
+	}
+	var resps []MCPResponse
+	dec := json.NewDecoder(&out)
+	for dec.More() {
+		var r MCPResponse
+		if err := dec.Decode(&r); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		resps = append(resps, r)
+	}
+	return resps
+}
+
+// TestServeAnswersBadInputAndKeepsServing: a line that does not parse gets
+// -32700 with id null, a line over maxRequestLine gets -32600 with id null,
+// and in both cases the next request is still answered.
+func TestServeAnswersBadInputAndKeepsServing(t *testing.T) {
+	srv, _ := newTestServer(t)
+	ping := `{"jsonrpc":"2.0","id":7,"method":"ping"}` + "\n"
+
+	for name, tc := range map[string]struct {
+		bad  string
+		code int
+	}{
+		"malformed": {"{not json\n", -32700},
+		"oversized": {`{"jsonrpc":"2.0","id":1,"method":"ping","params":{"pad":"` + strings.Repeat("x", maxRequestLine) + `"}}` + "\n", -32600},
+	} {
+		resps := serveLines(t, srv, tc.bad+ping)
+		if len(resps) != 2 {
+			t.Fatalf("%s: %d responses, want 2 (the error, then the ping)", name, len(resps))
+		}
+		if e := resps[0].Error; e == nil || e.Code != tc.code || resps[0].ID != nil {
+			t.Errorf("%s: first response = %+v, want error %d with id null", name, resps[0], tc.code)
+		}
+		if resps[1].Error != nil || resps[1].ID != float64(7) {
+			t.Errorf("%s: second response = %+v, want the ping answered (id 7)", name, resps[1])
+		}
+	}
+}
+
+// TestServeLastLineWithoutNewline: a final request with no trailing newline is
+// still answered.
+func TestServeLastLineWithoutNewline(t *testing.T) {
+	srv, _ := newTestServer(t)
+	resps := serveLines(t, srv, `{"jsonrpc":"2.0","id":3,"method":"ping"}`)
+	if len(resps) != 1 || resps[0].ID != float64(3) || resps[0].Error != nil {
+		t.Errorf("responses = %+v, want the ping answered", resps)
+	}
+}
 
 func TestNew(t *testing.T) {
 	srv, _ := newTestServer(t)
