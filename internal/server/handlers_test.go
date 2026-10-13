@@ -454,6 +454,58 @@ func serveManyKeys(r *kbtest.Remote) {
 	r.SetIndex(idx)
 }
 
+// serveScoredKeys serves an index of 25 keys p2kbWidget00.. (each scores 0.5
+// for "widget nothing", so none wins) and 12 keys p2kbZzq00.. (no token match
+// for "zq", too short to count, but a substring of every one, so p2kb_get
+// falls back to Search).
+func serveScoredKeys(r *kbtest.Remote) {
+	idx := r.Index()
+	idx.Files = map[string]kbtest.FileEntry{}
+	for prefix, n := range map[string]int{"p2kbWidget": 25, "p2kbZzq": 12} {
+		for i := 0; i < n; i++ {
+			k := fmt.Sprintf("%s%02d", prefix, i)
+			idx.Files[k] = kbtest.FileEntry{Path: "deliverables/ai/P2/" + k + ".yaml", Mtime: 1700000000}
+		}
+	}
+	r.SetIndex(idx)
+}
+
+// TestGetSuggestionsListEveryMatch: p2kb_get suggests every scored match
+// (past the old top 20), highest score first, and its no-match fallback
+// suggests every substring match (past the old fixed 10).
+func TestGetSuggestionsListEveryMatch(t *testing.T) {
+	srv, r := newTestServer(t)
+	serveScoredKeys(r)
+
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{{"widget nothing", 25}, {"zq", 12}} {
+		resp := srv.handleGet(1, json.RawMessage(fmt.Sprintf(`{"query":%q}`, tc.query)))
+		if resp.Error != nil {
+			t.Fatalf("%s: %v", tc.query, resp.Error)
+		}
+		res := extractResultMap(t, resp)
+		suggestions, _ := res["suggestions"].([]interface{})
+		if res["type"] != "suggestions" || len(suggestions) != tc.want {
+			t.Errorf("%s: type %v with %d suggestions, want suggestions listing all %d", tc.query, res["type"], len(suggestions), tc.want)
+		}
+		last := 2.0
+		for _, s := range suggestions {
+			entry, ok := s.(map[string]interface{})
+			if !ok {
+				break // the fallback lists keys, not scored entries
+			}
+			score, _ := entry["score"].(float64)
+			if score > last {
+				t.Errorf("%s: suggestions not highest score first: %v", tc.query, suggestions)
+				break
+			}
+			last = score
+		}
+	}
+}
+
 // findKeys runs p2kb_find with the given arguments and decodes the result.
 func findKeys(t *testing.T, srv *Server, args string) map[string]interface{} {
 	t.Helper()

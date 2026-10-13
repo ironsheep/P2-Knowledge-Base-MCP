@@ -75,7 +75,7 @@ func (s *Server) handleGet(id interface{}, args json.RawMessage) *MCPResponse {
 
 	if len(matches) == 0 {
 		// Try substring search as fallback
-		keys := s.indexManager.Search(params.Query, 10)
+		keys := s.indexManager.Search(params.Query, 0) // every match
 		if len(keys) > 0 {
 			return s.successResponse(id, map[string]interface{}{
 				"type":        "suggestions",

@@ -451,15 +451,10 @@ func (m *Manager) MatchQuery(query string) ([]QueryMatch, error) {
 		}
 	}
 
-	// Sort by score descending
+	// Sort by score descending; every match is returned
 	sort.Slice(matches, func(i, j int) bool {
 		return matches[i].Score > matches[j].Score
 	})
-
-	// Limit results
-	if len(matches) > 20 {
-		matches = matches[:20]
-	}
 
 	return matches, nil
 }
