@@ -3,6 +3,38 @@
 All notable changes to p2kb-mcp, newest first. Each version heading links to the full set of
 changes from the release before it.
 
+## [1.5.1] - 2026-10-13
+
+OBEX objects as the Knowledge Base publishes them, and results that are never cut short without saying so.
+
+### New Features
+
+- `p2kb_obex_get`: `full_metadata` carries the object's complete metadata as the Knowledge Base publishes it
+- `p2kb_obex_download`: for an object OBEX offers no download for, returns `type: "no_download"` with the object's OBEX page, and fetches nothing
+- `p2kb_version`: `unreadable_objects` counts OBEX objects whose metadata could not be read
+
+### Improvements
+
+- `p2kb_find`, `p2kb_obex_find`: every match is returned unless `limit` is given; results were capped at 50 and 20
+- `p2kb_get`, `p2kb_obex_get`: suggestions list every match, highest score first
+- `p2kb_obex_find`: `category` takes OBEX's own category names, ignoring case, and matches objects filed under several categories; the overview counts each one
+- **OBEX results**: an object whose metadata cannot be read is listed in `unreadable_objects` rather than left out
+
+### Bug Fixes
+
+- **OBEX objects filed under more than one category** are found again. 1.5.0 answered `object_not_found` for them and left them out of searches and category counts
+- `p2kb_find` with both `term` and `category` returns every matching entry in that category. Terms matching more than 50 entries overall could return few or none
+- `p2kb_find` with a `term` and an unknown `category` answers `category_not_found` rather than returning unfiltered results
+- `p2kb_find` with a `category` reports an error when the index cannot be read, rather than `category_not_found`
+- **MCP protocol**: a request that is not valid JSON gets a JSON-RPC parse error rather than no reply
+- **MCP protocol**: a request line over 1 MB gets an error, and no longer stops the server
+
+### Breaking Changes
+
+- **BREAKING**: `p2kb_obex_get` `metadata` carries only `created_date`, and is omitted when the object has none. `quality`, `version` and `file_size` are gone; read any other field from `full_metadata`
+- **BREAKING**: `p2kb_obex_get` omits `download_url` and `download_instructions` when OBEX offers no download for the object. Check for `download_url` before downloading
+- **BREAKING**: `category` in OBEX results is a string, or a list of strings for an object filed under several categories
+
 ## [1.5.0] - 2026-10-07
 
 Knowledge Base content arrives without its internal provenance, filtered by a rule the Knowledge Base publishes.
@@ -378,6 +410,7 @@ All documentation fetched from the [P2 Knowledge Base](https://github.com/ironsh
 - PASM2 instructions, Spin2 methods, architecture documentation
 - Smart pin configurations, hardware specifications
 
+[1.5.1]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.5...v1.4.0
 [1.3.5]: https://github.com/ironsheep/P2-Knowledge-Base-MCP/compare/v1.3.4...v1.3.5
